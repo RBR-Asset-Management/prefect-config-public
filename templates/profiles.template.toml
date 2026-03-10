@@ -1,0 +1,7 @@
+active = "default"
+
+[profiles.default]
+PREFECT_API_URL = "https://prefect-eve.rbr.local/api"
+PREFECT_API_TLS_INSECURE_SKIP_VERIFY=true
+PREFECT_API_AUTH_STRING="{{USER}}:{{PWD}}"
+PREFECT_CLIENT_CUSTOM_HEADERS='{"Authorization": "Basic {{BASE64}}"}'
