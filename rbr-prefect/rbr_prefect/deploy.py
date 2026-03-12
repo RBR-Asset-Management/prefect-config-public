@@ -118,6 +118,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
             url=self._resolve_github_url(),
             branch=self._resolve_branch(),
             credentials=GitHubCredentials.load(RBRBlocks.GITHUB_CREDENTIALS),
+            include_submodules=True,
         )
 
     def resolve_entrypoint(self, flow_func: Callable) -> str:
