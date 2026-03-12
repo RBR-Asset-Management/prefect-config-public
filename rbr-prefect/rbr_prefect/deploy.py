@@ -301,8 +301,8 @@ class BaseDeploy(Generic[P]):
             )
 
         # 7. Resolver entrypoint
-        self._entrypoint = (
-            entrypoint or self._source_strategy.resolve_entrypoint(flow_func)
+        self._entrypoint = entrypoint or self._source_strategy.resolve_entrypoint(
+            flow_func
         )
 
         # 8. Resolver parameters defaults via inspect.signature
@@ -492,11 +492,13 @@ class BaseDeploy(Generic[P]):
         self - permite encadeamento com .deploy().
         """
         # Validar exclusividade mutua
-        provided = sum([
-            cron is not None,
-            interval is not None,
-            rrule is not None,
-        ])
+        provided = sum(
+            [
+                cron is not None,
+                interval is not None,
+                rrule is not None,
+            ]
+        )
         if provided == 0:
             raise ValueError(ValidationMessages.SCHEDULE_REQUIRED)
         if provided > 1:
@@ -613,6 +615,50 @@ class DefaultDeploy(BaseDeploy[P]):
         branch: str | None = None,
         entrypoint: str | None = None,
         image: str = RBRDocker.DEFAULT_IMAGE,
+        work_pool_name: str = RBRWorkPools.DEFAULT,
+        extra_job_variables: dict[str, Any] | None = None,
+        job_variables_override: dict[str, Any] | None = None,
+        extra_env: dict[str, str] | None = None,
+        env_override: dict[str, str] | None = None,
+        concurrency_limit: int | None = None,
+    ) -> None:
+        super().__init__(
+            flow_func=flow_func,
+            name=name,
+            tags=tags,
+            source_strategy=source_strategy,
+            github_url=github_url,
+            branch=branch,
+            entrypoint=entrypoint,
+            image=image,
+            work_pool_name=work_pool_name,
+            extra_job_variables=extra_job_variables,
+            job_variables_override=job_variables_override,
+            extra_env=extra_env,
+            env_override=env_override,
+            concurrency_limit=concurrency_limit,
+        )
+
+
+class SQLDeploy(BaseDeploy[P]):
+    """
+    Deploy para flows que precisam de drivers de conexão com SQL Server.
+
+    Utiliza a imagem RBR derivada do Prefect (prefecthq/prefect:3-python3.12)
+    com os drivers de conexão ao SQL Server instalados e o work pool padrao.
+    Adequado para flows que precisam buscar ou submeter dados ao db RBR.
+    """
+
+    def __init__(
+        self,
+        flow_func: Callable[P, Any],
+        name: str,
+        tags: list[str],
+        source_strategy: BaseSourceStrategy | None = None,
+        github_url: str | None = None,
+        branch: str | None = None,
+        entrypoint: str | None = None,
+        image: str = RBRDocker.SQL_IMAGE,
         work_pool_name: str = RBRWorkPools.DEFAULT,
         extra_job_variables: dict[str, Any] | None = None,
         job_variables_override: dict[str, Any] | None = None,

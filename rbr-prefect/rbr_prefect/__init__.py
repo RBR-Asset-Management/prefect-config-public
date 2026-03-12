@@ -8,12 +8,13 @@ Para referenciar constantes de infraestrutura:
     from rbr_prefect.constants import RBRDocker, RBRWorkPools
 """
 
-from rbr_prefect.deploy import DefaultDeploy, ScrapeDeploy
+from rbr_prefect.deploy import DefaultDeploy, ScrapeDeploy, SQLDeploy
 
 __version__ = "0.1.0"
 
 __all__ = [
     "DefaultDeploy",
     "ScrapeDeploy",
+    "SQLDeploy",
     "__version__",
 ]

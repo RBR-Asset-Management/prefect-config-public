@@ -8,7 +8,7 @@ do Prefect diretamente.
 
 from rbr_prefect import DefaultDeploy
 
-from flows.flow_country import country_flow
+from .flows.flow_country import country_flow
 
 if __name__ == "__main__":
     deploy = DefaultDeploy(

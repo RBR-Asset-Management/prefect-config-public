@@ -17,7 +17,12 @@ class RBRDocker:
     """Imagens Docker e configurações de container para deploys."""
 
     DEFAULT_IMAGE = "prefecthq/prefect:3-python3.12"
+
+    # TODO: arrumar rbr-custom
     SCRAPE_IMAGE = "rbr-custom/prefect-playwright:3-python3.12"
+
+    SQL_IMAGE = "10.214.20.79:5000/prefect-rbr-sql:3-python3.12"
+
     CERT_VOLUME = "/home/rbr-admin/certs:/host-certs:ro"
 
     # Variáveis de ambiente do Playwright para ScrapeDeploy
