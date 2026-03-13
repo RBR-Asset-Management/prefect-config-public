@@ -193,7 +193,7 @@ class SQLAlchemyAdvanced(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class DatabaseCredentials(Block):
+class DBCredentials(Block):
     """
     Credenciais e parâmetros de conexão para bancos de dados relacionais via SQLAlchemy.
 
