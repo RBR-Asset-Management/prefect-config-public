@@ -18,8 +18,7 @@ class RBRDocker:
 
     DEFAULT_IMAGE = "prefecthq/prefect:3-python3.12"
 
-    # TODO: arrumar rbr-custom
-    SCRAPE_IMAGE = "rbr-custom/prefect-playwright:3-python3.12"
+    SCRAPE_IMAGE = "10.214.20.79:5000/prefect-rbr-sql-scrape:3-ptyhon3.12"
 
     SQL_IMAGE = "10.214.20.79:5000/prefect-rbr-sql:3-python3.12"
 
