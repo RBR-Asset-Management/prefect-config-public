@@ -34,6 +34,7 @@ from rbr_prefect.constants import (
     RBRJobVariables,
     RBRPrefectServer,
     RBRWorkPools,
+    RBRTimeZone,
 )
 
 from rbr_prefect.cron import CronBuilder
@@ -550,13 +551,21 @@ class BaseDeploy(Generic[P]):
                 msg = f"Parâmetro cron deve ser do tipo {type(CronBuilder)} ou {type(str)}. Recebido {(type(cron))}"
                 raise TypeError(msg)
 
-            self._schedule = CronSchedule(cron=cron_string)
+            self._schedule = CronSchedule(
+                cron=cron_string,
+                timezone=RBRTimeZone.SAO_PAULO,
+            )
 
         if interval is not None:
-            self._schedule = IntervalSchedule(interval=interval)
+            self._schedule = IntervalSchedule(
+                interval=interval, timezone=RBRTimeZone.SAO_PAULO
+            )
 
         if rrule is not None:
-            self._schedule = RRuleSchedule(rrule=rrule)
+            self._schedule = RRuleSchedule(
+                rrule=rrule,
+                timezone=RBRTimeZone.SAO_PAULO,
+            )
 
         return self
 

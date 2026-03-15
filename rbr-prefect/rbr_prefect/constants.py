@@ -86,3 +86,7 @@ class RBRJobVariables:
 
     AUTO_REMOVE = True
     IMAGE_PULL_POLICY = "IfNotPresent"
+
+
+class RBRTimeZone:
+    SAO_PAULO = "America/Sao_Paulo"

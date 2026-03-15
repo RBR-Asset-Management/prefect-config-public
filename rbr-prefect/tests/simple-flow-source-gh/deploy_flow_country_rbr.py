@@ -24,4 +24,6 @@ if __name__ == "__main__":
 
     cron = CronBuilder().on_weekdays().at_hour(4)
 
-    deploy.schedule(cron).deploy()
+    deploy = deploy.schedule(cron)
+
+    print(1)
