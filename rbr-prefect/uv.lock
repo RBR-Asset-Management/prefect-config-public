@@ -338,12 +338,12 @@ wheels = [
 ]
 
 [[package]]
-name = "cronexpressions"
+name = "cron-builder"
 version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/13/14/13c8a0b44e75fcab12d09d094363870d157301a283aba5d687ab41e2b302/cronexpressions-0.1.1.tar.gz", hash = "sha256:49f4ab7898696ba453ec7828d57dc7ea40971e5100b7bb266a873ada85df5221", size = 4514, upload-time = "2024-12-10T10:26:34.787Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/a4/23d5673a0b745ae82540a8fec4942e4c3e93dd816ccab2215e000d46c1b1/cron_builder-0.1.1.tar.gz", hash = "sha256:66fdabcdc628afafbfcacabd6d0e94dcfd2356ab976e78f8cf4dcfdd628f7ed7", size = 28840, upload-time = "2026-01-12T00:52:22.532Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/71/c2c20a44800e739c15ea59dd4bd0ed1b600b9713449098cb1081f447fce2/cronexpressions-0.1.1-py3-none-any.whl", hash = "sha256:e3bf299288df8bacb0cc4578ed236eb11bfa72214260959a0077fa378d88354a", size = 4499, upload-time = "2024-12-10T10:26:32.223Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/4b/51a66006bae575ab7bb1c3520ab7edbf49dae428058f5e331cbd2f5d9007/cron_builder-0.1.1-py3-none-any.whl", hash = "sha256:0328107abccb01140f6635bcc52440c6cbf557d4e725a66361540449eb905163", size = 8479, upload-time = "2026-01-12T00:52:20.743Z" },
 ]
 
 [[package]]
@@ -1475,10 +1475,10 @@ wheels = [
 
 [[package]]
 name = "rbr-prefect"
-version = "0.1.0"
+version = "0.3.4"
 source = { editable = "." }
 dependencies = [
-    { name = "cronexpressions" },
+    { name = "cron-builder" },
     { name = "prefect" },
     { name = "prefect-github" },
 ]
@@ -1490,7 +1490,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cronexpressions" },
+    { name = "cron-builder", specifier = ">=0.1.1" },
     { name = "prefect" },
     { name = "prefect-github" },
 ]

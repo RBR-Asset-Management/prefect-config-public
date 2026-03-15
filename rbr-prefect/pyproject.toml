@@ -9,7 +9,7 @@ license = { text = "MIT" }
 dependencies = [
     "prefect",
     "prefect-github",
-    "cronexpressions",
+    "cron-builder",
 ]
 
 [project.urls]

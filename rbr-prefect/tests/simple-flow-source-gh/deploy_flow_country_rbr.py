@@ -7,6 +7,7 @@ do Prefect diretamente.
 """
 
 from rbr_prefect import DefaultDeploy
+from rbr_prefect.cron import CronBuilder
 
 from .flows.flow_country import country_flow
 
@@ -20,4 +21,7 @@ if __name__ == "__main__":
         tags=["teste"],
     )
     deploy.parameters = deploy.override(country_name="Brazil")
-    deploy.deploy()
+
+    cron = CronBuilder().on_weekdays().at_hour(4)
+
+    deploy.schedule(cron).deploy()

@@ -36,6 +36,8 @@ from rbr_prefect.constants import (
     RBRWorkPools,
 )
 
+from rbr_prefect.cron import CronBuilder
+
 P = ParamSpec("P")
 
 
@@ -467,18 +469,43 @@ class BaseDeploy(Generic[P]):
 
     def schedule(
         self,
-        cron: Any | None = None,
+        cron: CronBuilder | str | None = None,
         *,
         interval: datetime.timedelta | None = None,
         rrule: str | None = None,
     ) -> "BaseDeploy[P]":
         """
         Configura a agenda de execucao automatica do flow.
+        Utilize rbr_prefect.cron para montar a expressão Cron
+        que define a recorrência da execução.
+
+        Exemplos:
+        ```python
+        from rbr_prefect.cron import CronBuilder
+
+        # todo dia da semana às 4:00
+        cron = CronBuilder().on_weekdays().at_hour(4)
+
+        # todo dia 1 do mês as 23:00
+        cron = CronBuilder().on_day_of_month(1).at_hour(23)
+
+        # todo dia da semana a cada 30 minutos
+        cron = CronBuilder().on_weekdays().every_minutes(30)
+
+        # passa e expressão cron para o deploy
+        meu_deploy.schedule(cron)
+
+        # executa o deploy no prefect
+        meu_deploy.deploy()
+
+        ```
+        rbr_prefect.cron é baseado em no pacote cron-builder.
+        Acesse a documentação completa e mais exemplos em: [cron-builder](https://pypi.org/project/cron-builder/)
 
         Parameters
         ----------
         cron
-            Expressao de agendamento construida com o pacote cronexpressions.
+            Expressao de agendamento construida com o pacote cron-builder.
             Interface principal e recomendada para agendamentos regulares.
             Exemplo: every().weekday.at("09:00")
         interval
@@ -512,8 +539,17 @@ class BaseDeploy(Generic[P]):
 
         # Construir o schedule apropriado
         if cron is not None:
-            # Extrair string cron do objeto cronexpressions
-            cron_string = str(cron)
+            # Extrair string cron do objeto cron-builder
+
+            if type(cron) is type(CronBuilder):
+                cron_string = str(cron)
+
+            elif type(cron) is str:
+                cron_string = cron
+            else:
+                msg = "Parâmetro cron deve ser do tipo CronBuilder ou str"
+                raise TypeError(msg)
+
             self._schedule = CronSchedule(cron=cron_string)
 
         if interval is not None:
@@ -527,7 +563,6 @@ class BaseDeploy(Generic[P]):
     # -------------------------------------------------------------------------
     # Deploy Execution
     # -------------------------------------------------------------------------
-
     def deploy(self, name: str | None = None) -> None:
         """
         Executa o deploy do flow no servidor Prefect da RBR.
