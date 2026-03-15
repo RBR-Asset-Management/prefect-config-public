@@ -541,13 +541,13 @@ class BaseDeploy(Generic[P]):
         if cron is not None:
             # Extrair string cron do objeto cron-builder
 
-            if type(cron) is type(CronBuilder):
+            if type(cron) is type(CronBuilder()):
                 cron_string = str(cron)
 
             elif type(cron) is str:
                 cron_string = cron
             else:
-                msg = "Parâmetro cron deve ser do tipo CronBuilder ou str"
+                msg = f"Parâmetro cron deve ser do tipo {type(CronBuilder)} ou {type(str)}. Recebido {(type(cron))}"
                 raise TypeError(msg)
 
             self._schedule = CronSchedule(cron=cron_string)
