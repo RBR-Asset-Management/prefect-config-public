@@ -1,4 +1,0 @@
-prefect
-prefect-github
-cron-builder
-requirements-detector>=1.5.0
