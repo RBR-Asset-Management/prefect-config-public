@@ -20,6 +20,9 @@ class DeployMessages:
     LABEL_ENTRYPOINT = "entrypoint"
     LABEL_PARAMETERS = "parameters"
     LABEL_IMAGE = "image"
+
+    LABEL_REQUIREMENTS = "requirements"
+
     LABEL_WORK_POOL = "work_pool_name"
     LABEL_TAGS = "tags"
     LABEL_SCHEDULE = "schedule"
@@ -96,6 +99,7 @@ class ValidationMessages:
     """Mensagens de erro de validacao lancadas como excecoes."""
 
     TAGS_REQUIRED = "Pelo menos uma tag e obrigatoria."
+    REQUIREMENTS_PATH_INVALID = "O caminho para o requirements.txt não existe."
     NAME_REQUIRED = "O parametro 'name' e obrigatorio."
     OUTSIDE_GIT_REPO = (
         "Nao foi possivel detectar um repositorio Git. "
@@ -124,8 +128,7 @@ class ValidationMessages:
         "ou 'job_variables_override' para substituir completamente."
     )
     SCHEDULE_REQUIRED = (
-        "E necessario fornecer exatamente um dos parametros: "
-        "cron, interval ou rrule."
+        "E necessario fornecer exatamente um dos parametros: cron, interval ou rrule."
     )
 
     _INVALID_PARAM = (

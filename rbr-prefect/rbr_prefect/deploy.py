@@ -35,9 +35,13 @@ from rbr_prefect.constants import (
     RBRPrefectServer,
     RBRWorkPools,
     RBRTimeZone,
+    RBRBaseEnvVariables,
 )
 
 from rbr_prefect.cron import CronBuilder
+
+from requirements_detector import find_requirements, RequirementsNotFound
+from requirements_detector.detect import from_requirements_txt
 
 P = ParamSpec("P")
 
@@ -260,6 +264,8 @@ class BaseDeploy(Generic[P]):
         github_url: str | None = None,
         branch: str | None = None,
         entrypoint: str | None = None,
+        # --- Python Requirements ---
+        requirements_source: Path | str | None = None,
         # --- Imagem Docker ---
         image: str = RBRDocker.DEFAULT_IMAGE,
         # --- Work pool ---
@@ -317,13 +323,18 @@ class BaseDeploy(Generic[P]):
         self._name = name
         self._tags = tags
         self._image = image
+        self._requirements_source = requirements_source
         self._work_pool_name = work_pool_name
         self._extra_job_variables = extra_job_variables or {}
         self._job_variables_override = job_variables_override
         self._extra_env = extra_env or {}
         self._env_override = env_override
         self._concurrency_limit = concurrency_limit
+
         self._schedule: Any = None
+
+        self._requirements: list[str] | None = None
+        self._requirements_env: str | None = None
 
     def _extract_default_parameters(self, flow_func: Callable) -> dict[str, Any]:
         """Extrai parametros com valor default da assinatura da funcao."""
@@ -409,17 +420,54 @@ class BaseDeploy(Generic[P]):
         return merged
 
     # -------------------------------------------------------------------------
+    # Requirements Resolution
+    # -------------------------------------------------------------------------
+
+    def _resolve_requirements(self):
+
+        requirements = None
+        requirements_env = None
+
+        if self._requirements_source is None:
+            cwd = Path.cwd()
+            try:
+                requirements = find_requirements(cwd)
+            except RequirementsNotFound:
+                pass
+
+        else:
+            if type(self._requirements_source) is str:
+                self._requirements_source = Path(str)
+
+            if not self._requirements_source.exists():
+                raise ValueError(ValidationMessages.REQUIREMENTS_PATH_INVALID)
+            else:
+                requirements = from_requirements_txt(self._requirements_source)
+
+        if requirements:
+            requirements = [str(r) for r in requirements]
+            requirements_env = " ".join(requirements)
+
+            self._requirements = requirements
+            self._requirements_env = requirements_env
+
+    # -------------------------------------------------------------------------
     # Env Resolution
     # -------------------------------------------------------------------------
 
     def _build_base_env(self) -> dict[str, str]:
         """Constroi o dict base de env (variáveis RBR)."""
-        return {
-            "PREFECT_API_URL": RBRPrefectServer.API_URL,
-            "PREFECT_API_SSL_CERT_FILE": RBRPrefectServer.SSL_CERT_PATH,
-            "PREFECT_API_AUTH_STRING": RBRBlocks.auth_string_template(),
-            "PREFECT_CLIENT_CUSTOM_HEADERS": RBRBlocks.header_template(),
+        base_env = {
+            RBRBaseEnvVariables.PREFECT_API_URL: RBRPrefectServer.API_URL,
+            RBRBaseEnvVariables.PREFECT_API_SSL_CERT_FILE: RBRPrefectServer.SSL_CERT_PATH,
+            RBRBaseEnvVariables.PREFECT_API_AUTH_STRING: RBRBlocks.auth_string_template(),
+            RBRBaseEnvVariables.PREFECT_CLIENT_CUSTOM_HEADERS: RBRBlocks.header_template(),
         }
+
+        if self._requirements:
+            base_env[RBRBaseEnvVariables.EXTRA_PIP_PACKAGES] = self._requirements_env
+
+        return base_env
 
     def _build_extra_env(self) -> dict[str, str]:
         """Hook para subclasses adicionarem variaveis de ambiente especificas."""
@@ -430,6 +478,8 @@ class BaseDeploy(Generic[P]):
         if self._env_override is not None:
             # Bypass total inclusive do env base RBR
             return self._env_override
+
+        self._resolve_requirements()
 
         base = self._build_base_env()
         subclass = self._build_extra_env()
@@ -586,6 +636,16 @@ class BaseDeploy(Generic[P]):
             o name definido na construcao.
         """
         deploy_name = name or self._name
+        deploy_description = self._build_description()
+
+        # Resolver valores automáticos
+        env = self._resolve_env()
+        job_variables = self._resolve_job_variables()
+
+        # Constroi mensagem requirements
+        msg_requirements = (
+            str(self._requirements_source) if self._requirements_source else "Auto"
+        )
 
         # Preparar dados para o painel de auditoria
         resolved = {
@@ -593,6 +653,7 @@ class BaseDeploy(Generic[P]):
             DeployMessages.LABEL_BRANCH: self._source_strategy.resolved_branch,
             DeployMessages.LABEL_ENTRYPOINT: self._entrypoint,
             DeployMessages.LABEL_NAME: deploy_name,
+            DeployMessages.LABEL_REQUIREMENTS: msg_requirements,
             DeployMessages.LABEL_IMAGE: self._image,
             DeployMessages.LABEL_WORK_POOL: self._work_pool_name,
             DeployMessages.LABEL_TAGS: self._tags,
@@ -605,12 +666,14 @@ class BaseDeploy(Generic[P]):
         overrides = {}
         if self._parameters:
             overrides[DeployMessages.LABEL_PARAMETERS] = self._parameters
+        if self._requirements_source:
+            overrides[DeployMessages.LABEL_REQUIREMENTS] = self._requirements_source
 
         # Exibir painel de auditoria
         print_audit_panel(
             resolved=resolved,
             overrides=overrides,
-            env=self._resolve_env(),
+            env=env,
             env_override_active=self._env_override is not None,
             job_variables_override_active=self._job_variables_override is not None,
         )
@@ -631,9 +694,9 @@ class BaseDeploy(Generic[P]):
             image=self._image,
             build=False,
             push=False,
-            job_variables=self._resolve_job_variables(),
+            job_variables=job_variables,
             parameters=self._parameters,
-            description=self._build_description(),
+            description=deploy_description,
             tags=self._tags,
             schedules=[self._schedule] if self._schedule else [],
             concurrency_limit=self._concurrency_limit,
@@ -660,6 +723,7 @@ class DefaultDeploy(BaseDeploy[P]):
         branch: str | None = None,
         entrypoint: str | None = None,
         image: str = RBRDocker.DEFAULT_IMAGE,
+        requirements_source: Path | str | None = None,
         work_pool_name: str = RBRWorkPools.DEFAULT,
         extra_job_variables: dict[str, Any] | None = None,
         job_variables_override: dict[str, Any] | None = None,
@@ -676,6 +740,7 @@ class DefaultDeploy(BaseDeploy[P]):
             branch=branch,
             entrypoint=entrypoint,
             image=image,
+            requirements_source=requirements_source,
             work_pool_name=work_pool_name,
             extra_job_variables=extra_job_variables,
             job_variables_override=job_variables_override,
@@ -704,6 +769,7 @@ class SQLDeploy(BaseDeploy[P]):
         branch: str | None = None,
         entrypoint: str | None = None,
         image: str = RBRDocker.SQL_IMAGE,
+        requirements_source: Path | str | None = None,
         work_pool_name: str = RBRWorkPools.DEFAULT,
         extra_job_variables: dict[str, Any] | None = None,
         job_variables_override: dict[str, Any] | None = None,
@@ -720,6 +786,7 @@ class SQLDeploy(BaseDeploy[P]):
             branch=branch,
             entrypoint=entrypoint,
             image=image,
+            requirements_source=requirements_source,
             work_pool_name=work_pool_name,
             extra_job_variables=extra_job_variables,
             job_variables_override=job_variables_override,
@@ -752,6 +819,7 @@ class ScrapeDeploy(BaseDeploy[P]):
         branch: str | None = None,
         entrypoint: str | None = None,
         image: str = RBRDocker.SCRAPE_IMAGE,
+        requirements_source: Path | str | None = None,
         work_pool_name: str = RBRWorkPools.DEFAULT,
         extra_job_variables: dict[str, Any] | None = None,
         job_variables_override: dict[str, Any] | None = None,
@@ -768,6 +836,7 @@ class ScrapeDeploy(BaseDeploy[P]):
             branch=branch,
             entrypoint=entrypoint,
             image=image,
+            requirements_source=requirements_source,
             work_pool_name=work_pool_name,
             extra_job_variables=extra_job_variables,
             job_variables_override=job_variables_override,

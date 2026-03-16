@@ -100,6 +100,15 @@ wheels = [
 ]
 
 [[package]]
+name = "astroid"
+version = "4.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/4c/569eefb533ce71bc9f4f12a4a0d7f0ba27e500681dec1312d4657e849d20/astroid-4.1.1.tar.gz", hash = "sha256:445d831fe785df8c670bbb46b900b8424b82f85b4af187103f71a63a63ebed43", size = 412522, upload-time = "2026-02-23T02:36:30.315Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/32/53/bac4724684064bfee95ece0bb6caf3887e509006845e25388a12cac26d0c/astroid-4.1.1-py3-none-any.whl", hash = "sha256:6b28522096f7e7a36ffcf3be60e77de15e2411ab3a713184beac33fb8f20c0c9", size = 279273, upload-time = "2026-02-23T02:36:28.676Z" },
+]
+
+[[package]]
 name = "asyncpg"
 version = "0.31.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1475,12 +1484,13 @@ wheels = [
 
 [[package]]
 name = "rbr-prefect"
-version = "0.3.4"
+version = "0.3.7"
 source = { editable = "." }
 dependencies = [
     { name = "cron-builder" },
     { name = "prefect" },
     { name = "prefect-github" },
+    { name = "requirements-detector" },
 ]
 
 [package.dev-dependencies]
@@ -1490,9 +1500,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cron-builder", specifier = ">=0.1.1" },
+    { name = "cron-builder" },
     { name = "prefect" },
     { name = "prefect-github" },
+    { name = "requirements-detector", specifier = ">=1.5.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1644,6 +1655,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/42/f2/05f29bc3913aea15eb670be136045bf5c5bbf4b99ecb839da9b422bb2c85/requests-oauthlib-2.0.0.tar.gz", hash = "sha256:b3dffaebd884d8cd778494369603a9e7b58d29111bf6b41bdc2dcd87203af4e9", size = 55650, upload-time = "2024-03-22T20:32:29.939Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3b/5d/63d4ae3b9daea098d5d6f5da83984853c1bbacd5dc826764b249fe119d24/requests_oauthlib-2.0.0-py2.py3-none-any.whl", hash = "sha256:7dd8a5c40426b779b0868c404bdef9768deccf22749cde15852df527e6269b36", size = 24179, upload-time = "2024-03-22T20:32:28.055Z" },
+]
+
+[[package]]
+name = "requirements-detector"
+version = "1.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "astroid" },
+    { name = "packaging" },
+    { name = "semver" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2f/06/26ff42b5ab0ec87f5290e19719bf7f0ce36bc0ad1e26d5e31d03e69a9132/requirements_detector-1.5.0.tar.gz", hash = "sha256:49ae15a73c1ab4e33c81e02166248d61323d331999c798b226bc21a09846dbbe", size = 15953, upload-time = "2026-02-03T09:04:59.788Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2e/73/dba124df535e6f6224c136b2d86de622ab3d573c347d391b071c59e19a8a/requirements_detector-1.5.0-py3-none-any.whl", hash = "sha256:729c93034caccd3f8c2f9152536afb0fac19d283b7e52ada32f269d3b5f9c285", size = 21072, upload-time = "2026-02-03T09:04:58.244Z" },
 ]
 
 [[package]]
