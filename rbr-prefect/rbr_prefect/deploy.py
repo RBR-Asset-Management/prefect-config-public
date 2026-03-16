@@ -25,9 +25,11 @@ from rbr_prefect._cli import (
     confirm_concurrency_limit,
     confirm_work_pool_override,
     print_audit_panel,
+    print_env_panel,
     print_handoff,
+    print_requirements_panel,
 )
-from rbr_prefect._cli.messages import DeployMessages, ValidationMessages
+from rbr_prefect._cli.messages import DeployMessages, RequirementsMessages, ValidationMessages
 from rbr_prefect.constants import (
     RBRBlocks,
     RBRDocker,
@@ -323,7 +325,11 @@ class BaseDeploy(Generic[P]):
         self._name = name
         self._tags = tags
         self._image = image
-        self._requirements_source = requirements_source
+        # Normalizar requirements_source: str → Path na construcao
+        if isinstance(requirements_source, str):
+            self._requirements_source: Path | None = Path(requirements_source)
+        else:
+            self._requirements_source = requirements_source
         self._work_pool_name = work_pool_name
         self._extra_job_variables = extra_job_variables or {}
         self._job_variables_override = job_variables_override
@@ -335,6 +341,8 @@ class BaseDeploy(Generic[P]):
 
         self._requirements: list[str] | None = None
         self._requirements_env: str | None = None
+        self._requirements_resolved: bool = False
+        self._requirements_detection_mode: str | None = None
 
     def _extract_default_parameters(self, flow_func: Callable) -> dict[str, Any]:
         """Extrai parametros com valor default da assinatura da funcao."""
@@ -423,33 +431,45 @@ class BaseDeploy(Generic[P]):
     # Requirements Resolution
     # -------------------------------------------------------------------------
 
-    def _resolve_requirements(self):
+    def _resolve_requirements(self) -> None:
+        # Guard contra resolucao dupla
+        if self._requirements_resolved:
+            return
 
+        repo_root = self._source_strategy.resolved_repo_root
         requirements = None
-        requirements_env = None
 
         if self._requirements_source is None:
-            cwd = Path.cwd()
             try:
-                requirements = find_requirements(cwd)
+                requirements = find_requirements(repo_root)
+                # Determinar qual arquivo foi usado para deteccao
+                if (repo_root / "pyproject.toml").exists():
+                    self._requirements_detection_mode = RequirementsMessages.AUTO_DETECTED_PYPROJECT
+                elif (repo_root / "requirements.txt").exists():
+                    self._requirements_detection_mode = RequirementsMessages.AUTO_DETECTED_TXT
+                else:
+                    self._requirements_detection_mode = RequirementsMessages.AUTO_DETECTED_PYPROJECT
             except RequirementsNotFound:
-                pass
+                self._requirements_detection_mode = None
 
         else:
-            if type(self._requirements_source) is str:
-                self._requirements_source = Path(str)
+            # Resolver path relativo em relacao ao repo_root
+            source_path = self._requirements_source
+            if not source_path.is_absolute():
+                source_path = repo_root / source_path
 
-            if not self._requirements_source.exists():
+            if not source_path.exists():
                 raise ValueError(ValidationMessages.REQUIREMENTS_PATH_INVALID)
-            else:
-                requirements = from_requirements_txt(self._requirements_source)
+
+            requirements = from_requirements_txt(source_path)
+            self._requirements_detection_mode = RequirementsMessages.explicit_file(str(source_path))
 
         if requirements:
-            requirements = [str(r) for r in requirements]
-            requirements_env = " ".join(requirements)
+            str_requirements = [str(r) for r in requirements]
+            self._requirements = str_requirements
+            self._requirements_env = " ".join(str_requirements)
 
-            self._requirements = requirements
-            self._requirements_env = requirements_env
+        self._requirements_resolved = True
 
     # -------------------------------------------------------------------------
     # Env Resolution
@@ -642,18 +662,12 @@ class BaseDeploy(Generic[P]):
         env = self._resolve_env()
         job_variables = self._resolve_job_variables()
 
-        # Constroi mensagem requirements
-        msg_requirements = (
-            str(self._requirements_source) if self._requirements_source else "Auto"
-        )
-
         # Preparar dados para o painel de auditoria
         resolved = {
             DeployMessages.LABEL_GITHUB_URL: self._source_strategy.resolved_github_url,
             DeployMessages.LABEL_BRANCH: self._source_strategy.resolved_branch,
             DeployMessages.LABEL_ENTRYPOINT: self._entrypoint,
             DeployMessages.LABEL_NAME: deploy_name,
-            DeployMessages.LABEL_REQUIREMENTS: msg_requirements,
             DeployMessages.LABEL_IMAGE: self._image,
             DeployMessages.LABEL_WORK_POOL: self._work_pool_name,
             DeployMessages.LABEL_TAGS: self._tags,
@@ -666,17 +680,20 @@ class BaseDeploy(Generic[P]):
         overrides = {}
         if self._parameters:
             overrides[DeployMessages.LABEL_PARAMETERS] = self._parameters
-        if self._requirements_source:
-            overrides[DeployMessages.LABEL_REQUIREMENTS] = self._requirements_source
 
-        # Exibir painel de auditoria
+        # Exibir painel de auditoria (valores resolvidos + overrides + avisos)
         print_audit_panel(
             resolved=resolved,
             overrides=overrides,
-            env=env,
             env_override_active=self._env_override is not None,
             job_variables_override_active=self._job_variables_override is not None,
         )
+
+        # Exibir painel de requirements (entre valores resolvidos e env)
+        print_requirements_panel(self._requirements, self._requirements_detection_mode)
+
+        # Exibir painel de env resolvido
+        print_env_panel(env)
 
         # Exibir separador de passagem de responsabilidade
         print_handoff(deploy_name)

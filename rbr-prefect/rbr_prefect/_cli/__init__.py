@@ -10,12 +10,16 @@ from rbr_prefect._cli.ui import (
     confirm_concurrency_limit,
     confirm_work_pool_override,
     print_audit_panel,
+    print_env_panel,
     print_handoff,
+    print_requirements_panel,
 )
 
 __all__ = [
     "print_audit_panel",
+    "print_env_panel",
     "print_handoff",
+    "print_requirements_panel",
     "confirm_work_pool_override",
     "confirm_concurrency_limit",
     "confirm_advanced_schedule",

@@ -95,6 +95,27 @@ class ScheduleMessages:
     ABORTED = "Deploy abortado pelo usuario."
 
 
+class RequirementsMessages:
+    """Mensagens relacionadas ao painel de requirements."""
+
+    PANEL_HEADER = "Python Requirements"
+    NO_REQUIREMENTS = "Nenhum requirements detectado — EXTRA_PIP_PACKAGES não sera injetado"
+
+    AUTO_DETECTED_PYPROJECT = "Auto-detectado via pyproject.toml"
+    AUTO_DETECTED_TXT = "Auto-detectado via requirements.txt"
+
+    _EXPLICIT_FILE = "Arquivo explícito: {path}"
+    _TRUNCATED = "... e mais {n} pacotes"
+
+    @staticmethod
+    def explicit_file(path: str) -> str:
+        return RequirementsMessages._EXPLICIT_FILE.format(path=path)
+
+    @staticmethod
+    def truncated(n: int) -> str:
+        return RequirementsMessages._TRUNCATED.format(n=n)
+
+
 class ValidationMessages:
     """Mensagens de erro de validacao lancadas como excecoes."""
 

@@ -18,6 +18,7 @@ from rbr_prefect._cli.messages import (
     DeployMessages,
     EnvMessages,
     JobVariablesMessages,
+    RequirementsMessages,
     ScheduleMessages,
     WorkPoolMessages,
 )
@@ -28,7 +29,6 @@ _console = Console(file=sys.stdout)
 def print_audit_panel(
     resolved: dict,
     overrides: dict,
-    env: dict,
     env_override_active: bool = False,
     job_variables_override_active: bool = False,
 ) -> None:
@@ -41,8 +41,6 @@ def print_audit_panel(
         Valores resolvidos automaticamente (github_url, branch, entrypoint, etc.)
     overrides : dict
         Overrides aplicados pelo dev (parameters, extra_env, etc.)
-    env : dict
-        Dict env final apos merge das tres camadas
     env_override_active : bool
         Se True, exibe aviso de override total do env
     job_variables_override_active : bool
@@ -99,7 +97,63 @@ def print_audit_panel(
             )
         )
 
-    # Tabela de env resolvido
+
+def print_requirements_panel(
+    requirements: list[str] | None,
+    detection_mode: str | None,
+) -> None:
+    """
+    Exibe o painel de requirements com os pacotes detectados.
+
+    Parameters
+    ----------
+    requirements : list[str] | None
+        Lista de pacotes detectados, ou None quando nao ha requirements.
+    detection_mode : str | None
+        Descricao de como os requirements foram obtidos (subtitulo do painel).
+    """
+    if not requirements:
+        _console.print(
+            Panel(
+                RequirementsMessages.NO_REQUIREMENTS,
+                title=f"[bold]{RequirementsMessages.PANEL_HEADER}[/bold]",
+                border_style="cyan",
+            )
+        )
+        return
+
+    MAX_SHOWN = 5
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Pacote", style="white")
+
+    shown = requirements[:MAX_SHOWN]
+    omitted = len(requirements) - MAX_SHOWN
+
+    for pkg in shown:
+        table.add_row(pkg)
+
+    if omitted > 0:
+        table.add_row(f"[dim]{RequirementsMessages.truncated(omitted)}[/dim]")
+
+    _console.print(
+        Panel(
+            table,
+            title=f"[bold]{RequirementsMessages.PANEL_HEADER}[/bold]",
+            subtitle=detection_mode,
+            border_style="cyan",
+        )
+    )
+
+
+def print_env_panel(env: dict) -> None:
+    """
+    Exibe o painel de variaveis de ambiente resolvidas.
+
+    Parameters
+    ----------
+    env : dict
+        Dict env final apos merge das tres camadas.
+    """
     env_table = Table(show_header=False, box=None, padding=(0, 2))
     env_table.add_column("Variavel", style="green")
     env_table.add_column("Valor", style="white", overflow="fold")
