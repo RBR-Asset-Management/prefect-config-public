@@ -491,10 +491,7 @@ class BaseDeploy(Generic[P]):
     def _build_base_env(self) -> dict[str, str]:
         """Constroi o dict base de env (variáveis RBR)."""
         base_env = {
-            RBRBaseEnvVariables.PREFECT_API_URL: RBRPrefectServer.API_URL,
             RBRBaseEnvVariables.PREFECT_API_SSL_CERT_FILE: RBRPrefectServer.SSL_CERT_PATH,
-            RBRBaseEnvVariables.PREFECT_API_AUTH_STRING: RBRBlocks.auth_string_template(),
-            RBRBaseEnvVariables.PREFECT_CLIENT_CUSTOM_HEADERS: RBRBlocks.header_template(),
         }
 
         if self._requirements:
