@@ -879,9 +879,10 @@ class ScrapeDeploy(BaseDeploy[P]):
             concurrency_limit=concurrency_limit,
         )
 
-    def _build_extra_env(self) -> dict[str, str]:
-        """Adiciona variaveis de ambiente do Playwright."""
-        return {
-            "PLAYWRIGHT_BROWSERS_PATH": RBRDocker.PLAYWRIGHT_BROWSERS_PATH,
-            "DISPLAY": RBRDocker.PLAYWRIGHT_DISPLAY,
-        }
+    # TODO: verificar se essas variáveis de ambiente são necessárias
+    # def _build_extra_env(self) -> dict[str, str]:
+    #     """Adiciona variaveis de ambiente do Playwright."""
+    #     return {
+    #         "PLAYWRIGHT_BROWSERS_PATH": RBRDocker.PLAYWRIGHT_BROWSERS_PATH,
+    #         "DISPLAY": RBRDocker.PLAYWRIGHT_DISPLAY,
+    #     }
