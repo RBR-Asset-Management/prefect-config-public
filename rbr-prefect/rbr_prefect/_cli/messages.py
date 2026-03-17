@@ -31,6 +31,10 @@ class DeployMessages:
     # Separador de passagem de responsabilidade
     HANDOFF_MESSAGE = "Configuracao validada. Passando para o Prefect..."
 
+    # Confirmar configurações
+    DEPLOY_CONFIRM = "Confirma o deploy com as configuracoes acima?"
+    DEPLOY_ABORTED = "Deploy abortado pelo usuario."
+
     # Templates e factories
     _DEPLOY_STARTING = "Iniciando deploy: '{name}'"
 
@@ -99,7 +103,9 @@ class RequirementsMessages:
     """Mensagens relacionadas ao painel de requirements."""
 
     PANEL_HEADER = "Python Requirements"
-    NO_REQUIREMENTS = "Nenhum requirements detectado — EXTRA_PIP_PACKAGES não sera injetado"
+    NO_REQUIREMENTS = (
+        "Nenhum requirements detectado — EXTRA_PIP_PACKAGES não sera injetado"
+    )
 
     AUTO_DETECTED_PYPROJECT = "Auto-detectado via pyproject.toml"
     AUTO_DETECTED_TXT = "Auto-detectado via requirements.txt"

@@ -185,6 +185,25 @@ def print_handoff(name: str) -> None:
     _console.print(Rule(DeployMessages.HANDOFF_MESSAGE, style="green"))
 
 
+def confirm_deploy() -> bool:
+    """
+    Solicita confirmacao do dev antes de executar o deploy.
+
+    Exibida apos o painel de auditoria, oferecendo um momento para
+    revisar os valores resolvidos automaticamente antes de prosseguir.
+
+    Returns
+    -------
+    bool
+        True se confirmado, False se negado.
+    """
+    _console.print()
+    confirmed = Confirm.ask(DeployMessages.DEPLOY_CONFIRM)
+    if not confirmed:
+        _console.print(DeployMessages.DEPLOY_ABORTED, style="red")
+    return confirmed
+
+
 def confirm_work_pool_override(pool_name: str) -> bool:
     """
     Exibe aviso e solicita confirmacao para override do work pool.

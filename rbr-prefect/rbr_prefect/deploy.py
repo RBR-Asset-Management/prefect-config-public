@@ -26,10 +26,15 @@ from rbr_prefect._cli import (
     confirm_work_pool_override,
     print_audit_panel,
     print_env_panel,
+    confirm_deploy,
     print_handoff,
     print_requirements_panel,
 )
-from rbr_prefect._cli.messages import DeployMessages, RequirementsMessages, ValidationMessages
+from rbr_prefect._cli.messages import (
+    DeployMessages,
+    RequirementsMessages,
+    ValidationMessages,
+)
 from rbr_prefect.constants import (
     RBRBlocks,
     RBRDocker,
@@ -444,11 +449,17 @@ class BaseDeploy(Generic[P]):
                 requirements = find_requirements(repo_root)
                 # Determinar qual arquivo foi usado para deteccao
                 if (repo_root / "pyproject.toml").exists():
-                    self._requirements_detection_mode = RequirementsMessages.AUTO_DETECTED_PYPROJECT
+                    self._requirements_detection_mode = (
+                        RequirementsMessages.AUTO_DETECTED_PYPROJECT
+                    )
                 elif (repo_root / "requirements.txt").exists():
-                    self._requirements_detection_mode = RequirementsMessages.AUTO_DETECTED_TXT
+                    self._requirements_detection_mode = (
+                        RequirementsMessages.AUTO_DETECTED_TXT
+                    )
                 else:
-                    self._requirements_detection_mode = RequirementsMessages.AUTO_DETECTED_PYPROJECT
+                    self._requirements_detection_mode = (
+                        RequirementsMessages.AUTO_DETECTED_PYPROJECT
+                    )
             except RequirementsNotFound:
                 self._requirements_detection_mode = None
 
@@ -462,7 +473,9 @@ class BaseDeploy(Generic[P]):
                 raise ValueError(ValidationMessages.REQUIREMENTS_PATH_INVALID)
 
             requirements = from_requirements_txt(source_path)
-            self._requirements_detection_mode = RequirementsMessages.explicit_file(str(source_path))
+            self._requirements_detection_mode = RequirementsMessages.explicit_file(
+                str(source_path)
+            )
 
         if requirements:
             str_requirements = [str(r) for r in requirements]
@@ -694,6 +707,10 @@ class BaseDeploy(Generic[P]):
 
         # Exibir painel de env resolvido
         print_env_panel(env)
+
+        # Confirmacao do dev apos revisao dos valores resolvidos
+        if not confirm_deploy():
+            raise SystemExit(0)
 
         # Exibir separador de passagem de responsabilidade
         print_handoff(deploy_name)
