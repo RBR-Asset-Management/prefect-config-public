@@ -10,7 +10,7 @@ Para referenciar constantes de infraestrutura:
 
 from rbr_prefect.deploy import DefaultDeploy, ScrapeDeploy, SQLDeploy
 
-__version__ = "0.3.11"
+__version__ = "0.3.12"
 
 __all__ = [
     "DefaultDeploy",
