@@ -5,6 +5,33 @@ Este arquivo é a fonte única da verdade para toda configuração de infraestru
 Nenhum valor literal de configuração deve aparecer em outros arquivos do pacote.
 """
 
+import re
+
+_WEEKDAYS_EN_PT: dict[str, str] = {
+    "monday": "segunda-feira",
+    "tuesday": "terça-feira",
+    "wednesday": "quarta-feira",
+    "thursday": "quinta-feira",
+    "friday": "sexta-feira",
+    "saturday": "sábado",
+    "sunday": "domingo",
+}
+
+_MONTHS_EN_PT: dict[str, str] = {
+    "january": "janeiro",
+    "february": "fevereiro",
+    "march": "março",
+    "april": "abril",
+    "may": "maio",
+    "june": "junho",
+    "july": "julho",
+    "august": "agosto",
+    "september": "setembro",
+    "october": "outubro",
+    "november": "novembro",
+    "december": "dezembro",
+}
+
 
 class RBRPrefectServer:
     """Configurações de conexão com o servidor Prefect da RBR."""
@@ -88,8 +115,23 @@ class RBRJobVariables:
     IMAGE_PULL_POLICY = "IfNotPresent"
 
 
-class RBRTimeZone:
-    SAO_PAULO = "America/Sao_Paulo"
+class RBRDateTimeConvention:
+    TIMEZONE = "America/Sao_Paulo"
+    LOCALE_CRON_DESCRIPTOR = "pt_PT"
+
+    @classmethod
+    def _localize_weekdays(text: str) -> str:
+        """Substitui nomes de dias da semana em inglês pelo equivalente em pt-BR."""
+        for en, pt in _WEEKDAYS_EN_PT.items():
+            text = re.sub(rf"\b{en}\b", pt, text, flags=re.IGNORECASE)
+        return text
+
+    @classmethod
+    def _localize_months(text: str) -> str:
+        """Substitui nomes de meses em inglês pelo equivalente em pt-BR."""
+        for en, pt in _MONTHS_EN_PT.items():
+            text = re.sub(rf"\b{en}\b", pt, text, flags=re.IGNORECASE)
+        return text
 
 
 class RBRBaseEnvVariables:

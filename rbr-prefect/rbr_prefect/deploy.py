@@ -41,7 +41,7 @@ from rbr_prefect.constants import (
     RBRJobVariables,
     RBRPrefectServer,
     RBRWorkPools,
-    RBRTimeZone,
+    RBRDateTimeConvention,
     RBRBaseEnvVariables,
 )
 
@@ -636,22 +636,33 @@ class BaseDeploy(Generic[P]):
 
             self._schedule = CronSchedule(
                 cron=cron_string,
-                timezone=RBRTimeZone.SAO_PAULO,
+                timezone=RBRDateTimeConvention.TIMEZONE,
             )
-            self._cron_descriptor = get_description(
-                cron_string,
-                options=Options(use_24hour_time_format=True, locale_code="pt_BR"),
-            )
+            try:
+                raw_descriptor = get_description(
+                    cron_string,
+                    options=Options(
+                        use_24hour_time_format=True,
+                        locale_code=RBRDateTimeConvention.LOCALE_CRON_DESCRIPTOR,
+                    ),
+                )
+                self._cron_descriptor = RBRDateTimeConvention._localize_months(
+                    RBRDateTimeConvention._localize_weekdays(raw_descriptor)
+                )
+            except Exception:
+                # Fallback silencioso: descricao legivel ausente, mas o cron_string
+                # continua sendo aplicado corretamente no deploy.
+                self._cron_descriptor = None
 
         if interval is not None:
             self._schedule = IntervalSchedule(
-                interval=interval, timezone=RBRTimeZone.SAO_PAULO
+                interval=interval, timezone=RBRDateTimeConvention.TIMEZONE
             )
 
         if rrule is not None:
             self._schedule = RRuleSchedule(
                 rrule=rrule,
-                timezone=RBRTimeZone.SAO_PAULO,
+                timezone=RBRDateTimeConvention.TIMEZONE,
             )
 
         return self
@@ -692,7 +703,7 @@ class BaseDeploy(Generic[P]):
 
         if self._schedule is not None:
             resolved[DeployMessages.LABEL_SCHEDULE] = (
-                f"Cron ({self._schedule}):{self._cron_descriptor}"
+                f"{self._cron_descriptor} | {str(self._schedule)}"
                 if self._cron_descriptor
                 else str(self._schedule)
             )
@@ -886,11 +897,3 @@ class ScrapeDeploy(BaseDeploy[P]):
             env_override=env_override,
             concurrency_limit=concurrency_limit,
         )
-
-    # TODO: verificar se essas variáveis de ambiente são necessárias
-    # def _build_extra_env(self) -> dict[str, str]:
-    #     """Adiciona variaveis de ambiente do Playwright."""
-    #     return {
-    #         "PLAYWRIGHT_BROWSERS_PATH": RBRDocker.PLAYWRIGHT_BROWSERS_PATH,
-    #         "DISPLAY": RBRDocker.PLAYWRIGHT_DISPLAY,
-    #     }
