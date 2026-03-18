@@ -47,6 +47,8 @@ from rbr_prefect.constants import (
 
 from rbr_prefect.cron import CronBuilder
 
+from cron_descriptor import get_description, Options
+
 from requirements_detector import find_requirements, RequirementsNotFound
 from requirements_detector.detect import from_requirements_txt
 
@@ -343,6 +345,7 @@ class BaseDeploy(Generic[P]):
         self._concurrency_limit = concurrency_limit
 
         self._schedule: Any = None
+        self._cron_descriptor: str | None = None
 
         self._requirements: list[str] | None = None
         self._requirements_env: str | None = None
@@ -635,6 +638,10 @@ class BaseDeploy(Generic[P]):
                 cron=cron_string,
                 timezone=RBRTimeZone.SAO_PAULO,
             )
+            self._cron_descriptor = get_description(
+                cron_string,
+                options=Options(use_24hour_time_format=True, locale_code="pt_BR"),
+            )
 
         if interval is not None:
             self._schedule = IntervalSchedule(
@@ -684,7 +691,11 @@ class BaseDeploy(Generic[P]):
         }
 
         if self._schedule is not None:
-            resolved[DeployMessages.LABEL_SCHEDULE] = str(self._schedule)
+            resolved[DeployMessages.LABEL_SCHEDULE] = (
+                f"Cron ({self._schedule}):{self._cron_descriptor}"
+                if self._cron_descriptor
+                else str(self._schedule)
+            )
 
         # Overrides aplicados pelo dev
         overrides = {}

@@ -356,6 +356,18 @@ wheels = [
 ]
 
 [[package]]
+name = "cron-descriptor"
+version = "2.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7c/31/0b21d1599656b2ffa6043e51ca01041cd1c0f6dacf5a3e2b620ed120e7d8/cron_descriptor-2.0.6.tar.gz", hash = "sha256:e39d2848e1d8913cfb6e3452e701b5eec662ee18bea8cc5aa53ee1a7bb217157", size = 49456, upload-time = "2025-09-03T16:30:22.434Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/cc/361326a54ad92e2e12845ad15e335a4e14b8953665007fb514d3393dfb0f/cron_descriptor-2.0.6-py3-none-any.whl", hash = "sha256:3a1c0d837c0e5a32e415f821b36cf758eb92d510e6beff8fbfe4fa16573d93d6", size = 74446, upload-time = "2025-09-03T16:30:21.397Z" },
+]
+
+[[package]]
 name = "cronsim"
 version = "2.7"
 source = { registry = "https://pypi.org/simple" }
@@ -1484,10 +1496,11 @@ wheels = [
 
 [[package]]
 name = "rbr-prefect"
-version = "0.3.7"
+version = "0.3.10"
 source = { editable = "." }
 dependencies = [
     { name = "cron-builder" },
+    { name = "cron-descriptor" },
     { name = "prefect" },
     { name = "prefect-github" },
     { name = "requirements-detector" },
@@ -1501,6 +1514,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cron-builder" },
+    { name = "cron-descriptor", specifier = ">=2.0.6" },
     { name = "prefect" },
     { name = "prefect-github" },
     { name = "requirements-detector", specifier = ">=1.5.0" },
