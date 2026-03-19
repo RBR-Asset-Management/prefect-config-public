@@ -41,14 +41,15 @@ if __name__ == "__main__":
         entrypoint="country-prefect-test/flows/country_flow.py:country_flow",
         github_url="https://github.com/RBR-Asset-Management/prefect-v3-test.git",
         branch="main",
-        requirements_source=r"C:\Users\thomaz.pougy\Documents\RBR\Projetos\prefect-config-public\rbr-prefect\requirements.txt",
+        requirements_source=r"C:\Users\thomaz.pougy\Documents\RBR\Projetos\prefect-config-public\rbr-prefect\requirements.txt",  # TODO: melhorar esse caminho
         name="country-prefect-test",
         tags=["teste"],
     )
     rbr_deploy.parameters = rbr_deploy.override(country_name="Brazil")
 
-    cron = CronBuilder().on_weekdays().at_hour(4)
+    cron = CronBuilder().on_weekdays().at_hour(4).at_minute(0)
 
     rbr_deploy = rbr_deploy.schedule(cron)
 
-    rbr_deploy.deploy()
+    # não executar o deploy neste primeiro momento do teste, vamos apenas garantir que os imports funcionam e que o código executa aqui a linha acima.
+    # rbr_deploy.deploy()

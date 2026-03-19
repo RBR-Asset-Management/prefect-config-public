@@ -2,6 +2,9 @@ from prefect import flow, task, get_run_logger
 import httpx
 import json
 
+from datetime import datetime
+from bizdays import Calendar
+
 
 @task
 def fetch_country_data(country_name: str):
@@ -16,6 +19,14 @@ def fetch_country_data(country_name: str):
 @flow(name="country-flow")
 def country_flow(country_name: str = "Brazil"):
     logger = get_run_logger()
+
+    cal = Calendar.load("ANBIMA")
+
+    d = datetime.now()
+
+    msg = "é" if cal.isbizday(d) else "não é"
+
+    logger.info(f"Hoje {d:%d-%m-%Y} {msg} dia útil")
 
     data = fetch_country_data(country_name)
 
