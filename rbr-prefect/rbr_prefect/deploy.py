@@ -473,7 +473,9 @@ class BaseDeploy(Generic[P]):
                 source_path = repo_root / source_path
 
             if not source_path.exists():
-                raise ValueError(ValidationMessages.REQUIREMENTS_PATH_INVALID)
+                raise ValueError(
+                    ValidationMessages.REQUIREMENTS_PATH_INVALID + f" ({source_path})"
+                )
 
             requirements = from_requirements_txt(source_path)
             self._requirements_detection_mode = RequirementsMessages.explicit_file(
@@ -706,7 +708,7 @@ class BaseDeploy(Generic[P]):
 
         if self._schedule is not None:
             resolved[DeployMessages.LABEL_SCHEDULE] = (
-                f"{self._cron_descriptor} | {str(self._schedule)}"
+                f"{self._cron_descriptor} ({str(self._schedule)})"
                 if self._cron_descriptor
                 else str(self._schedule)
             )

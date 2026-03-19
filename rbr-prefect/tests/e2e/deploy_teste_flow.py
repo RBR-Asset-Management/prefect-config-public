@@ -16,8 +16,8 @@ if __name__ == "__main__":
         flow_func=teste_flow,
         name="rbr-prefect-teste-flow",
         tags=["rbr-prefect", "teste"],
-        requirements_source="tests/flows/requirements.txt",
+        requirements_source="./rbr-prefect/tests/flows/requirements.txt",
     )
     deploy.parameters = deploy.override(country_name="Brazil")
-    deploy.schedule(CronBuilder().on_weekdays().at_hour(4).at_minute(0))
-    deploy.deploy()
+    deploy.schedule(CronBuilder().on_weekdays().at_hour(4)).deploy()
+    # deploy.deploy()
