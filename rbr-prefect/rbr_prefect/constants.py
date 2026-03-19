@@ -117,16 +117,16 @@ class RBRJobVariables:
 
 class RBRDateTimeConvention:
     TIMEZONE = "America/Sao_Paulo"
-    LOCALE_CRON_DESCRIPTOR = "pt_PT"
+    CRON_DESCRIPTOR_LOCALE = "pt_PT"
 
-    @classmethod
+    @staticmethod
     def _localize_weekdays(text: str) -> str:
         """Substitui nomes de dias da semana em inglês pelo equivalente em pt-BR."""
         for en, pt in _WEEKDAYS_EN_PT.items():
             text = re.sub(rf"\b{en}\b", pt, text, flags=re.IGNORECASE)
         return text
 
-    @classmethod
+    @staticmethod
     def _localize_months(text: str) -> str:
         """Substitui nomes de meses em inglês pelo equivalente em pt-BR."""
         for en, pt in _MONTHS_EN_PT.items():

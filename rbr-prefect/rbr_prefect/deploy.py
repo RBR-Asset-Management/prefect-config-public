@@ -47,7 +47,7 @@ from rbr_prefect.constants import (
 
 from rbr_prefect.cron import CronBuilder
 
-from cron_descriptor import get_description, Options
+from cron_descriptor import get_description, Options, CasingTypeEnum
 
 from requirements_detector import find_requirements, RequirementsNotFound
 from requirements_detector.detect import from_requirements_txt
@@ -642,13 +642,16 @@ class BaseDeploy(Generic[P]):
                 raw_descriptor = get_description(
                     cron_string,
                     options=Options(
+                        casing_type=CasingTypeEnum.LowerCase,
                         use_24hour_time_format=True,
-                        locale_code=RBRDateTimeConvention.LOCALE_CRON_DESCRIPTOR,
+                        locale_code=RBRDateTimeConvention.CRON_DESCRIPTOR_LOCALE,
                     ),
                 )
-                self._cron_descriptor = RBRDateTimeConvention._localize_months(
-                    RBRDateTimeConvention._localize_weekdays(raw_descriptor)
-                )
+                descriptor = RBRDateTimeConvention._localize_weekdays(raw_descriptor)
+                descriptor = RBRDateTimeConvention._localize_months(descriptor)
+                descriptor = descriptor.capitalize()
+                self._cron_descriptor = descriptor
+
             except Exception:
                 # Fallback silencioso: descricao legivel ausente, mas o cron_string
                 # continua sendo aplicado corretamente no deploy.
@@ -897,3 +900,10 @@ class ScrapeDeploy(BaseDeploy[P]):
             env_override=env_override,
             concurrency_limit=concurrency_limit,
         )
+
+    def _build_extra_env(self) -> dict[str, str]:
+        """Injeta variáveis de ambiente necessárias para o Playwright headless."""
+        return {
+            "PLAYWRIGHT_BROWSERS_PATH": RBRDocker.PLAYWRIGHT_BROWSERS_PATH,
+            "DISPLAY": RBRDocker.PLAYWRIGHT_DISPLAY,
+        }
