@@ -83,7 +83,7 @@ Verificar que cada classe existe e cada atributo tem o valor literal esperado. Q
 | Classe | Atributos a verificar |
 |---|---|
 | `RBRPrefectServer` | `API_URL`, `SSL_CERT_PATH` |
-| `RBRDocker` | `DEFAULT_IMAGE`, `SCRAPE_IMAGE`, `CERT_VOLUME`, `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_DISPLAY` |
+| `RBRDocker` | `DEFAULT_IMAGE`, `SCRAPE_IMAGE`, `CERT_VOLUME`, ,  |
 | `RBRWorkPools` | `DEFAULT` |
 | `RBRBlocks` | `GITHUB_CREDENTIALS`, `BASIC_AUTH`, `_BLOCK_TYPE_BASIC_AUTH`, `_AUTH_STRING_FIELD`, `_HEADER_FIELD` |
 | `RBRJobVariables` | `AUTO_REMOVE`, `IMAGE_PULL_POLICY` |
@@ -362,8 +362,7 @@ A hierarquia de merge é a lógica mais complexa do pacote fora da source strate
 
 **`_build_extra_env()` em `ScrapeDeploy`**
 
-- Deve retornar as variáveis do Playwright (`PLAYWRIGHT_BROWSERS_PATH`, `DISPLAY`).
-- O merge com o base RBR deve conter ambas as variáveis RBR e as do Playwright.
+- Igual aos outros deploys. Não precisa ser implementado
 
 **`_build_extra_env()` em `DefaultDeploy`**
 
@@ -478,7 +477,7 @@ As subclasses têm lógica mínima — apenas defaults diferentes e, no caso do 
 
 - `_image` deve ser `RBRDocker.SCRAPE_IMAGE`.
 - `_work_pool_name` deve ser `RBRWorkPools.DEFAULT`.
-- `_build_extra_env()` deve retornar dict com `PLAYWRIGHT_BROWSERS_PATH` e `DISPLAY`.
+- `_build_extra_env()` não precisa ser implementado. É igual ao base deploy
 - `_build_extra_job_variables()` deve retornar `{}`.
 
 **`ScrapeDeploy` — env merged inclui Playwright e RBR**

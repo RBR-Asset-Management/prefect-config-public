@@ -182,7 +182,6 @@ Nunca importe de `typing` `List` com L maiúsculo ou `Dict` com D maiúsculo. Ut
 
 ### `constants.py`
 
-- Ao adicionar novos atributos em `RBRDocker` para o `ScrapeDeploy` (como `PLAYWRIGHT_BROWSERS_PATH` e `PLAYWRIGHT_DISPLAY`), verificar os valores exatos no `Dockerfile` da imagem `rbr-custom/prefect-playwright:3-python3.12` antes de definir as constantes.
 - Os métodos `auth_string_template()` e `header_template()` de `RBRBlocks` devem ser compostos **programaticamente** a partir dos outros atributos da classe, não hardcodados como strings completas. Isso é o que garante a propagação automática ao renomear o bloco.
 
 ### `_cli/messages.py`

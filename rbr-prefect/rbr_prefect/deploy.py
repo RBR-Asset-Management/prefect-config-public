@@ -902,10 +902,3 @@ class ScrapeDeploy(BaseDeploy[P]):
             env_override=env_override,
             concurrency_limit=concurrency_limit,
         )
-
-    def _build_extra_env(self) -> dict[str, str]:
-        """Injeta variáveis de ambiente necessárias para o Playwright headless."""
-        return {
-            "PLAYWRIGHT_BROWSERS_PATH": RBRDocker.PLAYWRIGHT_BROWSERS_PATH,
-            "DISPLAY": RBRDocker.PLAYWRIGHT_DISPLAY,
-        }

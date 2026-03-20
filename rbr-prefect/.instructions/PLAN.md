@@ -245,7 +245,6 @@ Valida hierarquia de merge de `env`.
 | `test_ssl_cert_in_base_env` | `PREFECT_API_SSL_CERT_FILE` presente; valor é `RBRPrefectServer.SSL_CERT_PATH` |
 | `test_extra_env_merged` | `extra_env={"MY_VAR": "x"}` adiciona sem remover base |
 | `test_env_override_bypass` | `env_override={"ONLY": "x"}` → env é exatamente `{"ONLY": "x"}` |
-| `test_scrape_deploy_playwright_vars` | `PLAYWRIGHT_BROWSERS_PATH`, `DISPLAY` e `PREFECT_API_SSL_CERT_FILE` presentes |
 
 ### `TestRequirementsResolution`
 

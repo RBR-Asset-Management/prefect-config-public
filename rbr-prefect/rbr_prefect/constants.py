@@ -51,10 +51,6 @@ class RBRDocker:
 
     CERT_VOLUME = "/home/rbr-admin/certs:/host-certs:ro"
 
-    # Variáveis de ambiente do Playwright para ScrapeDeploy
-    PLAYWRIGHT_BROWSERS_PATH = "/ms-playwright"
-    PLAYWRIGHT_DISPLAY = ""
-
 
 class RBRWorkPools:
     """Nomes dos work pools do Prefect configurados no servidor da RBR."""

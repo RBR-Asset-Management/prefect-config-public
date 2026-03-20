@@ -456,22 +456,6 @@ class TestEnv:
         env = deploy._resolve_env()
         assert env == {"ONLY": "x"}
 
-    def test_scrape_deploy_playwright_vars(self, mock_git, flow_func):
-        from rbr_prefect import ScrapeDeploy
-        from rbr_prefect.constants import RBRBaseEnvVariables, RBRDocker
-
-        deploy = ScrapeDeploy(
-            flow_func=flow_func,
-            name="test",
-            tags=["test"],
-            entrypoint="flows/teste_flow.py:teste_flow",
-        )
-        env = deploy._resolve_env()
-        assert "PLAYWRIGHT_BROWSERS_PATH" in env
-        assert env["PLAYWRIGHT_BROWSERS_PATH"] == RBRDocker.PLAYWRIGHT_BROWSERS_PATH
-        assert "DISPLAY" in env
-        assert RBRBaseEnvVariables.PREFECT_API_SSL_CERT_FILE in env
-
 
 # =============================================================================
 # TestRequirementsResolution
