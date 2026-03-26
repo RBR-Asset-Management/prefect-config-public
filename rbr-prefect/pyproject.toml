@@ -1,6 +1,6 @@
 [project]
 name = "rbr-prefect"
-version = "0.3.15"
+version = "0.3.16"
 description = "Utilitário de deploy de flows Prefect para a RBR Asset Management."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,7 +22,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.bumpversion]
-current_version = "0.3.15"
+current_version = "0.3.16"
 commit = true
 tag = true
 
