@@ -232,6 +232,26 @@ Esqueleto futuro. Ambos os métodos lançam `NotImplementedError` com mensagem o
 
 ---
 
+### 4.5 Git Pre-Flight Check
+
+O git pre-flight check é uma etapa de verificação executada no início de `BaseDeploy.deploy()`, antes de qualquer resolução de env ou job_variables, e antes de qualquer outro output no terminal. Seu objetivo é detectar antecipadamente estados do repositório que causariam o Prefect a buscar um código diferente do que o dev está vendo localmente — uncommitted changes, commits sem push, ou submódulos com SHAs não publicados no remote.
+
+A verificação só é executada quando a `source_strategy` da instância é `GitHubSourceStrategy`. `DockerSourceStrategy` não executa checks de git — a etapa é completamente ignorada nesse caso, sem nenhum output adicional.
+
+A verificação é bypassada quando a variável de ambiente `RBR_SKIP_GIT_CHECK` estiver definida com qualquer valor não-vazio. Quando o bypass está ativo, o painel verde de sucesso ainda é exibido (para preservar a consistência visual do output), mas os checks de subprocess não são executados e `run_git_checks()` não é chamado.
+
+O método `run_git_checks()` de `GitHubSourceStrategy` executa exatamente 5 checks em sequência. Todos os checks são sempre executados, mesmo que os anteriores tenham encontrado issues — não há short-circuit. O método retorna uma lista de objetos `GitCheckIssue`, cada um com campos `check` (label da verificação, constante de `GitCheckMessages`) e `details` (descrição legível do problema encontrado). Lista vazia significa que tudo está ok.
+
+Os 5 checks são: (1) dirty check no repositório principal via `git status --porcelain`; (2) dirty check nos submódulos via `git submodule foreach`; (3) commits não pushed no repositório principal via `git log origin/{branch}..HEAD --oneline`; (4) commits não pushed nos submódulos via `git submodule foreach` com `git log`; (5) verificação de que o SHA pinado de cada submódulo é alcançável a partir de alguma ref remota via `git branch -r --contains {sha}`.
+
+Os checks de submódulos (2, 4 e 5) são silenciosamente omitidos quando o repositório não tem submódulos — a ausência de submódulos é verificada via `git submodule status --recursive`, e quando o output estiver vazio os três checks são pulados sem gerar nenhuma issue. Isso não é um problema — é o comportamento esperado para repositórios sem submódulos.
+
+Falhas de subprocess inesperadas são capturadas como issues do tipo `CHECK_SUBPROCESS_ERROR` e nunca propagadas como exceções. Todos os subprocessos são chamados com `check=False`; quando `returncode != 0`, o stderr é capturado como `details` da issue. Isso garante que o deploy pode prosseguir (com confirmação do usuário) mesmo que algum check não possa ser executado por razões externas.
+
+O resultado da verificação determina o fluxo: lista vazia exibe um painel verde com mensagem de sucesso e o deploy prossegue automaticamente; lista não-vazia exibe um painel vermelho com uma tabela contendo todas as issues encontradas e um prompt de confirmação ao dev. Se o dev negar o prompt, o deploy é abortado com `SystemExit(0)` — não uma exceção, pois é uma decisão do usuário, não um erro do programa.
+
+---
+
 ## Seção 5 — `BaseDeploy` e `Generic[P]`
 
 ### 5.1 Papel e Responsabilidades

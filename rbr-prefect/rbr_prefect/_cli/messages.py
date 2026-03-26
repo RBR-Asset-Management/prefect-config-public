@@ -122,6 +122,25 @@ class RequirementsMessages:
         return RequirementsMessages._TRUNCATED.format(n=n)
 
 
+class GitCheckMessages:
+    """Mensagens relacionadas ao git pre-flight check antes do deploy."""
+
+    PANEL_HEADER = "Git Pre-Flight Check"
+    SUCCESS = "Repositório limpo — código sincronizado com o remote."
+    ISSUES_CONFIRM = "Foram encontrados problemas no repositório. Confirma o deploy mesmo assim?"
+    ABORTED = "Deploy abortado pelo usuário."
+    SKIPPED = "Verificação Git ignorada via RBR_SKIP_GIT_CHECK."
+    BYPASS_ENV_VAR = "RBR_SKIP_GIT_CHECK"
+
+    # Labels dos checks (usados como valor do campo GitCheckIssue.check)
+    CHECK_DIRTY_MAIN = "Alterações não commitadas (repo principal)"
+    CHECK_DIRTY_SUBMODULES = "Alterações não commitadas (submódulos)"
+    CHECK_UNPUSHED_MAIN = "Commits locais sem push (repo principal)"
+    CHECK_UNPUSHED_SUBMODULES = "Commits locais sem push (submódulos)"
+    CHECK_SUBMODULE_PINS = "Commit pinado ausente no remote (submódulos)"
+    CHECK_SUBPROCESS_ERROR = "Erro inesperado ao executar verificação Git"
+
+
 class ValidationMessages:
     """Mensagens de erro de validacao lancadas como excecoes."""
 

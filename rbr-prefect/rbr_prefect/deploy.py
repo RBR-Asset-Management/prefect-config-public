@@ -4,9 +4,11 @@ Classes de deploy para flows Prefect da RBR.
 Este arquivo contem toda a logica de construcao, validacao e execucao de deploys.
 """
 
+import dataclasses
 import datetime
 import importlib.metadata
 import inspect
+import os
 import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -23,15 +25,18 @@ from prefect_github import GitHubCredentials
 from rbr_prefect._cli import (
     confirm_advanced_schedule,
     confirm_concurrency_limit,
+    confirm_git_issues,
     confirm_work_pool_override,
     print_audit_panel,
     print_env_panel,
+    print_git_check_panel,
     confirm_deploy,
     print_handoff,
     print_requirements_panel,
 )
 from rbr_prefect._cli.messages import (
     DeployMessages,
+    GitCheckMessages,
     RequirementsMessages,
     ValidationMessages,
 )
@@ -66,6 +71,12 @@ def _get_underlying_function(flow_func: Callable) -> Callable:
     if hasattr(flow_func, "fn"):
         return flow_func.fn
     return flow_func
+
+
+@dataclasses.dataclass
+class GitCheckIssue:
+    check: str    # nome do check que falhou (usar constante de messages.py)
+    details: str  # descrição legível do problema encontrado
 
 
 # =============================================================================
@@ -208,6 +219,188 @@ class GitHubSourceStrategy(BaseSourceStrategy):
             return result.stdout.strip()
         except subprocess.CalledProcessError:
             raise RuntimeError(ValidationMessages.OUTSIDE_GIT_REPO)
+
+    def run_git_checks(self) -> list[GitCheckIssue]:
+        """
+        Executa 5 verificações de estado do repositório Git.
+
+        Retorna lista de GitCheckIssue com os problemas encontrados.
+        Lista vazia indica repositório limpo e sincronizado.
+        Nunca propaga exceções — falhas de subprocess viram issues.
+        """
+        issues: list[GitCheckIssue] = []
+        repo_root = str(self._resolve_repo_root())
+        branch = self._resolve_branch()
+
+        # Check 1 — Dirty check no repo principal
+        result = subprocess.run(
+            ["git", "-C", repo_root, "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            issues.append(
+                GitCheckIssue(
+                    check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
+                    details=result.stderr,
+                )
+            )
+        elif result.stdout.strip():
+            issues.append(
+                GitCheckIssue(
+                    check=GitCheckMessages.CHECK_DIRTY_MAIN,
+                    details=result.stdout.strip(),
+                )
+            )
+
+        # Verificar se há submódulos
+        submodule_status = subprocess.run(
+            ["git", "-C", repo_root, "submodule", "status", "--recursive"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        has_submodules = (
+            submodule_status.returncode == 0
+            and bool(submodule_status.stdout.strip())
+        )
+
+        # Check 2 — Dirty check nos submódulos
+        if has_submodules:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    repo_root,
+                    "submodule",
+                    "foreach",
+                    "--quiet",
+                    "--recursive",
+                    "git status --porcelain",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                issues.append(
+                    GitCheckIssue(
+                        check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
+                        details=result.stderr,
+                    )
+                )
+            elif result.stdout.strip():
+                issues.append(
+                    GitCheckIssue(
+                        check=GitCheckMessages.CHECK_DIRTY_SUBMODULES,
+                        details=result.stdout.strip(),
+                    )
+                )
+
+        # Check 3 — Commits não pushed no repo principal
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                repo_root,
+                "log",
+                f"origin/{branch}..HEAD",
+                "--oneline",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            issues.append(
+                GitCheckIssue(
+                    check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
+                    details=result.stderr,
+                )
+            )
+        elif result.stdout.strip():
+            issues.append(
+                GitCheckIssue(
+                    check=GitCheckMessages.CHECK_UNPUSHED_MAIN,
+                    details=result.stdout.strip(),
+                )
+            )
+
+        # Check 4 — Commits não pushed nos submódulos
+        if has_submodules:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    repo_root,
+                    "submodule",
+                    "foreach",
+                    "--quiet",
+                    "--recursive",
+                    'git log origin/$(git rev-parse --abbrev-ref HEAD)..HEAD --oneline',
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                issues.append(
+                    GitCheckIssue(
+                        check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
+                        details=result.stderr,
+                    )
+                )
+            elif result.stdout.strip():
+                issues.append(
+                    GitCheckIssue(
+                        check=GitCheckMessages.CHECK_UNPUSHED_SUBMODULES,
+                        details=result.stdout.strip(),
+                    )
+                )
+
+        # Check 5 — Commit pinado de cada submódulo existe no remote
+        if has_submodules:
+            missing_pins: list[str] = []
+            for line in submodule_status.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                # formato: [ +-U]<sha> <path> (<describe>)
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                sha = parts[0].lstrip("+-U")
+                path = parts[1]
+                submodule_abs = str(Path(repo_root) / path)
+
+                pin_result = subprocess.run(
+                    ["git", "-C", submodule_abs, "branch", "-r", "--contains", sha],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if pin_result.returncode != 0:
+                    issues.append(
+                        GitCheckIssue(
+                            check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
+                            details=pin_result.stderr,
+                        )
+                    )
+                elif not pin_result.stdout.strip():
+                    missing_pins.append(
+                        f"{path}: commit {sha[:8]} não encontrado em nenhuma ref remota"
+                    )
+
+            if missing_pins:
+                issues.append(
+                    GitCheckIssue(
+                        check=GitCheckMessages.CHECK_SUBMODULE_PINS,
+                        details="\n".join(missing_pins),
+                    )
+                )
+
+        return issues
 
     @property
     def resolved_github_url(self) -> str:
@@ -690,6 +883,17 @@ class BaseDeploy(Generic[P]):
         """
         deploy_name = name or self._name
         deploy_description = self._build_description()
+
+        # Git pre-flight check (apenas para GitHubSourceStrategy)
+        if isinstance(self._source_strategy, GitHubSourceStrategy):
+            if not os.environ.get(GitCheckMessages.BYPASS_ENV_VAR):
+                git_issues = self._source_strategy.run_git_checks()
+                print_git_check_panel(git_issues)
+                if git_issues:
+                    if not confirm_git_issues():
+                        raise SystemExit(0)
+            else:
+                print_git_check_panel([])
 
         # Resolver valores automáticos
         env = self._resolve_env()

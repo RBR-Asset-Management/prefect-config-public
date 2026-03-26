@@ -17,6 +17,7 @@ from rbr_prefect._cli.messages import (
     ConcurrencyMessages,
     DeployMessages,
     EnvMessages,
+    GitCheckMessages,
     JobVariablesMessages,
     RequirementsMessages,
     ScheduleMessages,
@@ -235,6 +236,60 @@ def confirm_concurrency_limit() -> bool:
     confirmed = Confirm.ask(ConcurrencyMessages.CONFIRM)
     if not confirmed:
         _console.print(ConcurrencyMessages.ABORTED, style="red")
+    return confirmed
+
+
+def print_git_check_panel(issues: list) -> None:
+    """
+    Exibe o painel do git pre-flight check.
+
+    Parameters
+    ----------
+    issues : list
+        Lista de GitCheckIssue. Lista vazia exibe painel verde de sucesso.
+        Lista não vazia exibe painel vermelho com tabela de problemas.
+    """
+    if not issues:
+        _console.print(
+            Panel(
+                GitCheckMessages.SUCCESS,
+                title=GitCheckMessages.PANEL_HEADER,
+                border_style="green",
+            )
+        )
+        return
+
+    table = Table(show_header=True, box=None, padding=(0, 2))
+    table.add_column("Verificação", style="yellow")
+    table.add_column("Detalhe", style="white")
+
+    for issue in issues:
+        details = issue.details
+        if len(details) > 120:
+            details = details[:117] + "..."
+        table.add_row(issue.check, details)
+
+    _console.print(
+        Panel(
+            table,
+            title=GitCheckMessages.PANEL_HEADER,
+            border_style="red",
+        )
+    )
+
+
+def confirm_git_issues() -> bool:
+    """
+    Solicita confirmacao do dev para prosseguir com issues de git.
+
+    Returns
+    -------
+    bool
+        True se confirmado, False se negado.
+    """
+    confirmed = Confirm.ask(GitCheckMessages.ISSUES_CONFIRM)
+    if not confirmed:
+        _console.print(GitCheckMessages.ABORTED, style="red")
     return confirmed
 
 

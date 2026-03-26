@@ -564,3 +564,291 @@ class TestRequirementsResolution:
             deploy._resolve_requirements()
             deploy._resolve_requirements()
         assert mock_find.call_count == 1
+
+
+# =============================================================================
+# TestGitPreFlightCheck
+# =============================================================================
+
+
+class TestGitPreFlightCheck:
+    """Valida o git pre-flight check no fluxo de deploy e unitariamente."""
+
+    def _make_deploy(self, flow_func, **kwargs):
+        from rbr_prefect import DefaultDeploy
+
+        return DefaultDeploy(
+            flow_func=flow_func,
+            name="test",
+            tags=["test"],
+            entrypoint="flows/teste_flow.py:teste_flow",
+            **kwargs,
+        )
+
+    def _patch_prefect_calls(self, flow_func):
+        """Retorna context managers que mocam as chamadas ao Prefect no final de deploy()."""
+        mock_deployable = MagicMock()
+        mock_deployable.deploy = MagicMock(return_value=None)
+        return (
+            patch.object(flow_func, "from_source", return_value=mock_deployable),
+            patch("prefect_github.GitHubCredentials.load", return_value=MagicMock()),
+        )
+
+    def test_no_issues_proceeds_without_prompt(self, mock_git, mock_ui, flow_func):
+        """run_git_checks retorna [] — confirm_git_issues NÃO deve ser chamado."""
+        deploy = self._make_deploy(flow_func)
+        p1, p2 = self._patch_prefect_calls(flow_func)
+
+        with (
+            patch(
+                "rbr_prefect.deploy.GitHubSourceStrategy.run_git_checks",
+                return_value=[],
+            ) as mock_checks,
+            patch("rbr_prefect.deploy.print_git_check_panel") as mock_panel,
+            patch("rbr_prefect.deploy.confirm_git_issues") as mock_confirm,
+            p1,
+            p2,
+        ):
+            deploy.deploy()
+
+        mock_checks.assert_called_once()
+        mock_panel.assert_called_once_with([])
+        mock_confirm.assert_not_called()
+
+    def test_issues_show_prompt(self, mock_git, mock_ui, flow_func):
+        """run_git_checks retorna issues — confirm_git_issues deve ser chamado; se True, prossegue."""
+        from rbr_prefect.deploy import GitCheckIssue
+        from rbr_prefect._cli.messages import GitCheckMessages
+
+        fake_issue = GitCheckIssue(check=GitCheckMessages.CHECK_DIRTY_MAIN, details="M file.py")
+        deploy = self._make_deploy(flow_func)
+        p1, p2 = self._patch_prefect_calls(flow_func)
+
+        with (
+            patch(
+                "rbr_prefect.deploy.GitHubSourceStrategy.run_git_checks",
+                return_value=[fake_issue],
+            ),
+            patch("rbr_prefect.deploy.print_git_check_panel"),
+            patch(
+                "rbr_prefect.deploy.confirm_git_issues", return_value=True
+            ) as mock_confirm,
+            p1,
+            p2,
+        ):
+            deploy.deploy()
+
+        mock_confirm.assert_called_once()
+
+    def test_issues_deny_raises_systemexit(self, mock_git, mock_ui, flow_func):
+        """confirm_git_issues retorna False — deve levantar SystemExit(0)."""
+        from rbr_prefect.deploy import GitCheckIssue
+        from rbr_prefect._cli.messages import GitCheckMessages
+
+        fake_issue = GitCheckIssue(check=GitCheckMessages.CHECK_DIRTY_MAIN, details="M file.py")
+        deploy = self._make_deploy(flow_func)
+
+        with (
+            patch(
+                "rbr_prefect.deploy.GitHubSourceStrategy.run_git_checks",
+                return_value=[fake_issue],
+            ),
+            patch("rbr_prefect.deploy.print_git_check_panel"),
+            patch("rbr_prefect.deploy.confirm_git_issues", return_value=False),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                deploy.deploy()
+
+        assert exc_info.value.code == 0
+
+    def test_bypass_env_var_skips_checks(self, mock_git, mock_ui, flow_func, monkeypatch):
+        """Com RBR_SKIP_GIT_CHECK definido — run_git_checks NÃO deve ser chamado."""
+        from rbr_prefect._cli.messages import GitCheckMessages
+
+        monkeypatch.setenv(GitCheckMessages.BYPASS_ENV_VAR, "1")
+        deploy = self._make_deploy(flow_func)
+        p1, p2 = self._patch_prefect_calls(flow_func)
+
+        with (
+            patch(
+                "rbr_prefect.deploy.GitHubSourceStrategy.run_git_checks"
+            ) as mock_checks,
+            patch("rbr_prefect.deploy.print_git_check_panel") as mock_panel,
+            p1,
+            p2,
+        ):
+            deploy.deploy()
+
+        mock_checks.assert_not_called()
+        mock_panel.assert_called_once_with([])
+
+    def test_docker_strategy_skips_checks(self, mock_git, mock_ui, flow_func):
+        """DockerSourceStrategy — run_git_checks NÃO deve ser chamado."""
+        from rbr_prefect import DefaultDeploy
+        from rbr_prefect.deploy import DockerSourceStrategy
+
+        deploy = DefaultDeploy(
+            flow_func=flow_func,
+            name="test",
+            tags=["test"],
+            entrypoint="flows/teste_flow.py:teste_flow",
+            source_strategy=DockerSourceStrategy(),
+        )
+
+        with (
+            patch(
+                "rbr_prefect.deploy.GitHubSourceStrategy.run_git_checks"
+            ) as mock_checks,
+            patch("rbr_prefect.deploy.DockerSourceStrategy.build", side_effect=NotImplementedError),
+            patch("rbr_prefect.deploy.BaseDeploy.deploy", return_value=None),
+        ):
+            deploy.deploy()
+
+        mock_checks.assert_not_called()
+
+    def test_run_git_checks_dirty_main(self, mock_git):
+        """run_git_checks() retorna issue CHECK_DIRTY_MAIN quando repo tem alterações."""
+        from rbr_prefect.deploy import GitHubSourceStrategy
+        from rbr_prefect._cli.messages import GitCheckMessages
+        from unittest.mock import MagicMock
+
+        strategy = GitHubSourceStrategy(
+            github_url="https://github.com/org/repo.git",
+            branch="main",
+        )
+
+        def fake_subprocess(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            if "--show-toplevel" in cmd:
+                result.stdout = str(mock_git["repo_root"]) + "\n"
+            elif "status" in cmd and "--porcelain" in cmd and "submodule" not in cmd:
+                result.stdout = "M flows/file.py\n"
+            else:
+                result.stdout = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_subprocess):
+            issues = strategy.run_git_checks()
+
+        checks = [i.check for i in issues]
+        assert GitCheckMessages.CHECK_DIRTY_MAIN in checks
+
+    def test_run_git_checks_unpushed_main(self, mock_git):
+        """run_git_checks() retorna issue CHECK_UNPUSHED_MAIN quando há commits não pushed."""
+        from rbr_prefect.deploy import GitHubSourceStrategy
+        from rbr_prefect._cli.messages import GitCheckMessages
+        from unittest.mock import MagicMock
+
+        strategy = GitHubSourceStrategy(
+            github_url="https://github.com/org/repo.git",
+            branch="main",
+        )
+
+        def fake_subprocess(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            if "--show-toplevel" in cmd:
+                result.stdout = str(mock_git["repo_root"]) + "\n"
+            elif "log" in cmd and "origin/main..HEAD" in " ".join(cmd):
+                result.stdout = "abc1234 feat: local commit\n"
+            else:
+                result.stdout = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_subprocess):
+            issues = strategy.run_git_checks()
+
+        checks = [i.check for i in issues]
+        assert GitCheckMessages.CHECK_UNPUSHED_MAIN in checks
+
+    def test_run_git_checks_clean_returns_empty_list(self, mock_git):
+        """run_git_checks() retorna [] quando tudo está limpo."""
+        from rbr_prefect.deploy import GitHubSourceStrategy
+        from unittest.mock import MagicMock
+
+        strategy = GitHubSourceStrategy(
+            github_url="https://github.com/org/repo.git",
+            branch="main",
+        )
+
+        def fake_subprocess(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            if "--show-toplevel" in cmd:
+                result.stdout = str(mock_git["repo_root"]) + "\n"
+            else:
+                result.stdout = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_subprocess):
+            issues = strategy.run_git_checks()
+
+        assert issues == []
+
+    def test_run_git_checks_subprocess_error_captured_as_issue(self, mock_git):
+        """Subprocess com returncode=1 gera issue CHECK_SUBPROCESS_ERROR sem propagar exceção."""
+        from rbr_prefect.deploy import GitHubSourceStrategy
+        from rbr_prefect._cli.messages import GitCheckMessages
+        from unittest.mock import MagicMock
+
+        strategy = GitHubSourceStrategy(
+            github_url="https://github.com/org/repo.git",
+            branch="main",
+        )
+
+        def fake_subprocess(cmd, **kwargs):
+            result = MagicMock()
+            if "--show-toplevel" in cmd:
+                result.returncode = 0
+                result.stdout = str(mock_git["repo_root"]) + "\n"
+                result.stderr = ""
+            elif "status" in cmd and "--porcelain" in cmd and "submodule" not in cmd:
+                result.returncode = 1
+                result.stdout = ""
+                result.stderr = "algum erro inesperado"
+            else:
+                result.returncode = 0
+                result.stdout = ""
+                result.stderr = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_subprocess):
+            issues = strategy.run_git_checks()
+
+        checks = [i.check for i in issues]
+        assert GitCheckMessages.CHECK_SUBPROCESS_ERROR in checks
+        # Não deve propagar exceção — já chegamos até aqui
+
+    def test_run_git_checks_no_submodules_skips_submodule_checks(self, mock_git):
+        """Quando git submodule status retorna vazio, checks 2, 4 e 5 não geram issues."""
+        from rbr_prefect.deploy import GitHubSourceStrategy
+        from rbr_prefect._cli.messages import GitCheckMessages
+        from unittest.mock import MagicMock
+
+        strategy = GitHubSourceStrategy(
+            github_url="https://github.com/org/repo.git",
+            branch="main",
+        )
+
+        def fake_subprocess(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            if "--show-toplevel" in cmd:
+                result.stdout = str(mock_git["repo_root"]) + "\n"
+            elif "submodule" in cmd:
+                result.stdout = ""
+            else:
+                result.stdout = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_subprocess):
+            issues = strategy.run_git_checks()
+
+        submodule_checks = {
+            GitCheckMessages.CHECK_DIRTY_SUBMODULES,
+            GitCheckMessages.CHECK_UNPUSHED_SUBMODULES,
+            GitCheckMessages.CHECK_SUBMODULE_PINS,
+        }
+        issue_checks = {i.check for i in issues}
+        assert issue_checks.isdisjoint(submodule_checks)
