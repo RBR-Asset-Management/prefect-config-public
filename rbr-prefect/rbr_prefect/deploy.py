@@ -570,10 +570,10 @@ class BaseDeploy(Generic[P]):
         from rbr_prefect.cron import CronBuilder
 
         # todo dia da semana às 4:00
-        cron = CronBuilder().on_weekdays().at_hour(4)
+        cron = CronBuilder().on_weekdays().at_hour(4).at_minute(0)
 
         # todo dia 1 do mês as 23:00
-        cron = CronBuilder().on_day_of_month(1).at_hour(23)
+        cron = CronBuilder().on_day_of_month(1).at_hour(23).at_minute(0)
 
         # todo dia da semana a cada 30 minutos
         cron = CronBuilder().on_weekdays().every_minutes(30)
