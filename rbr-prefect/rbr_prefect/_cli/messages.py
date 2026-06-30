@@ -141,6 +141,18 @@ class GitCheckMessages:
     CHECK_SUBPROCESS_ERROR = "Erro inesperado ao executar verificação Git"
 
 
+class ProcessMessages:
+    """Mensagens relacionadas a deploys em work pool do tipo process."""
+
+    PANEL_HEADER = "Deploy Process — Dependencias"
+    WORKER_DEPS_WARNING = (
+        "Deploys em work pool process NAO gerenciam dependencias Python. "
+        "Garanta que todas as dependencias do flow ja estejam instaladas no "
+        "ambiente Python do worker. EXTRA_PIP_PACKAGES e auto-install via uv "
+        "nao se aplicam a process pools."
+    )
+
+
 class ValidationMessages:
     """Mensagens de erro de validacao lancadas como excecoes."""
 
@@ -176,6 +188,16 @@ class ValidationMessages:
     SCHEDULE_REQUIRED = (
         "E necessario fornecer exatamente um dos parametros: cron, interval ou rrule."
     )
+    PYPROJECT_NOT_FOUND = (
+        "dependency_mode=auto_install exige um pyproject.toml na raiz do repositorio, "
+        "mas nenhum foi encontrado. Crie um pyproject.toml com 'prefect' em "
+        "[project].dependencies, ou use dependency_mode='pip_packages' com um requirements.txt."
+    )
+    PREFECT_NOT_IN_PYPROJECT = (
+        "dependency_mode=auto_install exige que 'prefect' conste em [project].dependencies "
+        "do pyproject.toml — caso contrario o auto-install nao sera ativado em runtime. "
+        "Adicione 'prefect' as dependencias, ou use dependency_mode='pip_packages'."
+    )
 
     _INVALID_PARAM = (
         "Parametro de override invalido: '{param}'. "
@@ -185,6 +207,9 @@ class ValidationMessages:
         "Apenas um tipo de schedule pode ser configurado por vez. "
         "Forneca 'cron', 'interval' ou 'rrule' - nao multiplos simultaneamente."
     )
+    _DEPENDENCY_MODE_INVALID = (
+        "dependency_mode invalido: '{mode}'. Valores aceitos: {allowed}."
+    )
 
     @staticmethod
     def invalid_param(param: str, flow: str) -> str:
@@ -193,6 +218,12 @@ class ValidationMessages:
     @staticmethod
     def schedule_mutex() -> str:
         return ValidationMessages._SCHEDULE_MUTEX
+
+    @staticmethod
+    def dependency_mode_invalid(mode: str, allowed: str) -> str:
+        return ValidationMessages._DEPENDENCY_MODE_INVALID.format(
+            mode=mode, allowed=allowed
+        )
 
 
 __all__ = ["_localize_weekdays", "_localize_months"]

@@ -467,7 +467,10 @@ class TestRequirementsResolution:
 
     def _make_deploy(self, flow_func, **kwargs):
         from rbr_prefect import DefaultDeploy
+        from rbr_prefect.constants import RBRDependencyMode
 
+        # Requirements / EXTRA_PIP_PACKAGES so sao injetados no modo pip_packages.
+        kwargs.setdefault("dependency_mode", RBRDependencyMode.PIP_PACKAGES)
         return DefaultDeploy(
             flow_func=flow_func,
             name="test",
@@ -576,7 +579,11 @@ class TestGitPreFlightCheck:
 
     def _make_deploy(self, flow_func, **kwargs):
         from rbr_prefect import DefaultDeploy
+        from rbr_prefect.constants import RBRDependencyMode
 
+        # Evita o check de pre-condicao do auto_install (exigiria pyproject.toml
+        # no repo fake) — estes testes focam no git pre-flight, nao em deps.
+        kwargs.setdefault("dependency_mode", RBRDependencyMode.PIP_PACKAGES)
         return DefaultDeploy(
             flow_func=flow_func,
             name="test",
@@ -852,3 +859,176 @@ class TestGitPreFlightCheck:
         }
         issue_checks = {i.check for i in issues}
         assert issue_checks.isdisjoint(submodule_checks)
+
+
+# =============================================================================
+# TestDependencyMode
+# =============================================================================
+
+
+class TestDependencyMode:
+    """Valida o parametro dependency_mode e o check de pre-condicao do auto_install."""
+
+    def _make_deploy(self, flow_func, **kwargs):
+        from rbr_prefect import DefaultDeploy
+
+        return DefaultDeploy(
+            flow_func=flow_func,
+            name="test",
+            tags=["test"],
+            entrypoint="flows/teste_flow.py:teste_flow",
+            **kwargs,
+        )
+
+    def test_auto_install_injects_env_var(
+        self, fake_repo_with_requirements, mock_git, flow_func
+    ):
+        from rbr_prefect.constants import RBRBaseEnvVariables, RBRDependencyMode
+
+        deploy = self._make_deploy(
+            flow_func, dependency_mode=RBRDependencyMode.AUTO_INSTALL
+        )
+        env = deploy._resolve_env()
+        assert (
+            env[RBRBaseEnvVariables.PREFECT_RUNNER_AUTO_INSTALL_DEPENDENCIES]
+            == RBRDependencyMode.ENABLED_VALUE
+        )
+        # Mesmo com requirements.txt presente, AUTO_INSTALL NAO injeta EXTRA_PIP_PACKAGES
+        assert RBRBaseEnvVariables.EXTRA_PIP_PACKAGES not in env
+
+    def test_pip_packages_injects_extra_pip(
+        self, fake_repo_with_requirements, mock_git, flow_func
+    ):
+        from rbr_prefect.constants import RBRBaseEnvVariables, RBRDependencyMode
+
+        deploy = self._make_deploy(
+            flow_func, dependency_mode=RBRDependencyMode.PIP_PACKAGES
+        )
+        env = deploy._resolve_env()
+        assert RBRBaseEnvVariables.EXTRA_PIP_PACKAGES in env
+        assert (
+            RBRBaseEnvVariables.PREFECT_RUNNER_AUTO_INSTALL_DEPENDENCIES not in env
+        )
+
+    def test_invalid_dependency_mode_raises(self, mock_git, mock_ui, flow_func):
+        with pytest.raises(ValueError):
+            self._make_deploy(flow_func, dependency_mode="modo_invalido")
+
+    def test_validate_missing_pyproject_raises(self, fake_repo_root):
+        from rbr_prefect.deploy import DockerExecutionStrategy
+        from rbr_prefect.constants import RBRDependencyMode
+        from rbr_prefect._cli.messages import ValidationMessages
+
+        strategy = DockerExecutionStrategy()
+        with pytest.raises(ValueError) as exc_info:
+            strategy.validate_dependencies(
+                fake_repo_root, RBRDependencyMode.AUTO_INSTALL
+            )
+        assert ValidationMessages.PYPROJECT_NOT_FOUND in str(exc_info.value)
+
+    def test_validate_pyproject_without_prefect_raises(self, fake_repo_root):
+        from rbr_prefect.deploy import DockerExecutionStrategy
+        from rbr_prefect.constants import RBRDependencyMode
+        from rbr_prefect._cli.messages import ValidationMessages
+
+        (fake_repo_root / "pyproject.toml").write_text(
+            '[project]\nname = "x"\ndependencies = ["pandas>=2.0"]\n'
+        )
+        strategy = DockerExecutionStrategy()
+        with pytest.raises(ValueError) as exc_info:
+            strategy.validate_dependencies(
+                fake_repo_root, RBRDependencyMode.AUTO_INSTALL
+            )
+        assert ValidationMessages.PREFECT_NOT_IN_PYPROJECT in str(exc_info.value)
+
+    def test_validate_pyproject_with_prefect_ok(self, fake_repo_root):
+        from rbr_prefect.deploy import DockerExecutionStrategy
+        from rbr_prefect.constants import RBRDependencyMode
+
+        (fake_repo_root / "pyproject.toml").write_text(
+            '[project]\nname = "x"\ndependencies = ["prefect>=3.0.0", "pandas"]\n'
+        )
+        strategy = DockerExecutionStrategy()
+        # Nao deve levantar
+        strategy.validate_dependencies(fake_repo_root, RBRDependencyMode.AUTO_INSTALL)
+
+    def test_validate_skips_when_pip_packages(self, fake_repo_root):
+        from rbr_prefect.deploy import DockerExecutionStrategy
+        from rbr_prefect.constants import RBRDependencyMode
+
+        # Sem pyproject.toml, mas modo pip_packages — nao valida, nao levanta
+        strategy = DockerExecutionStrategy()
+        strategy.validate_dependencies(fake_repo_root, RBRDependencyMode.PIP_PACKAGES)
+
+
+# =============================================================================
+# TestProcessDeploy
+# =============================================================================
+
+
+class TestProcessDeploy:
+    """Valida ProcessDeploy e a ProcessExecutionStrategy."""
+
+    def _make_deploy(self, flow_func, **kwargs):
+        from rbr_prefect import ProcessDeploy
+
+        return ProcessDeploy(
+            flow_func=flow_func,
+            name="test",
+            tags=["test"],
+            entrypoint="flows/teste_flow.py:teste_flow",
+            **kwargs,
+        )
+
+    def test_default_work_pool_is_process(self, mock_ui, flow_func):
+        from rbr_prefect.constants import RBRWorkPools
+
+        deploy = self._make_deploy(flow_func)
+        assert deploy._work_pool_name == RBRWorkPools.PROCESS
+
+    def test_process_work_pool_no_override_prompt(self, flow_func):
+        # PROCESS esta em RBRWorkPools.KNOWN — nao deve chamar confirm_work_pool_override
+        with patch(
+            "rbr_prefect.deploy.confirm_work_pool_override"
+        ) as mock_confirm:
+            self._make_deploy(flow_func)
+        mock_confirm.assert_not_called()
+
+    def test_base_job_variables_empty(self, mock_git, flow_func):
+        deploy = self._make_deploy(flow_func)
+        result = deploy._resolve_job_variables()
+        assert "volumes" not in result
+        assert "auto_remove" not in result
+        assert "image_pull_policy" not in result
+        assert result["env"] == {}
+
+    def test_base_env_empty(self, mock_git, flow_func):
+        from rbr_prefect.constants import RBRBaseEnvVariables
+
+        deploy = self._make_deploy(flow_func)
+        env = deploy._resolve_env()
+        assert env == {}
+        assert RBRBaseEnvVariables.PREFECT_API_SSL_CERT_FILE not in env
+
+    def test_resolve_image_is_none(self, flow_func):
+        deploy = self._make_deploy(flow_func)
+        assert deploy._execution_strategy.resolve_image("qualquer-imagem") is None
+
+    def test_pre_deploy_notice_present(self, flow_func):
+        from rbr_prefect._cli.messages import ProcessMessages
+
+        deploy = self._make_deploy(flow_func)
+        notices = deploy._execution_strategy.pre_deploy_notices()
+        assert ProcessMessages.WORKER_DEPS_WARNING in notices
+
+    def test_dependency_mode_param_rejected(self, flow_func):
+        from rbr_prefect import ProcessDeploy
+
+        with pytest.raises(TypeError):
+            ProcessDeploy(
+                flow_func=flow_func,
+                name="test",
+                tags=["test"],
+                entrypoint="flows/teste_flow.py:teste_flow",
+                dependency_mode="auto_install",
+            )

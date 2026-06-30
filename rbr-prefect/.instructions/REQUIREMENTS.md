@@ -100,7 +100,7 @@ Centraliza imagens Docker e configurações de container. `DEFAULT_IMAGE` é a i
 
 ### 2.4 `RBRWorkPools`
 
-Centraliza os nomes dos work pools. `DEFAULT` é o work pool padrão usado por todas as subclasses. A diferenciação entre tipos de flow (HTTP, scraping, SQL) é feita pela imagem Docker, não pelo work pool — todos usam o mesmo pool. Um work pool alternativo pode ser fornecido em qualquer deploy, mas exige confirmação interativa via prompt.
+Centraliza os nomes dos work pools. `DEFAULT` é o work pool Docker padrão usado pelas subclasses Docker. `PROCESS` (`"windows"`) é o work pool do tipo process, usado por `ProcessDeploy`. A diferenciação entre tipos de flow Docker (HTTP, scraping, SQL) é feita pela imagem, não pelo work pool — todos usam `DEFAULT`. `KNOWN` é a tupla de pools RBR conhecidos (`DEFAULT`, `PROCESS`): o prompt de confirmação de override só dispara para pools fora dessa tupla. Um work pool alternativo pode ser fornecido em qualquer deploy, mas exige confirmação interativa via prompt.
 
 ---
 
@@ -232,6 +232,20 @@ Esqueleto futuro. Ambos os métodos lançam `NotImplementedError` com mensagem o
 
 ---
 
+### 4.6 Execution Strategy
+
+Espelhando a source strategy, a **execution strategy** responde: *onde e como* o flow executa? Ela concentra as diferenças entre rodar em um container Docker e rodar como subprocesso em um worker do tipo process. Toda a hierarquia reside em `deploy.py`, junto às demais classes.
+
+`BaseExecutionStrategy` é a classe base abstrata com três métodos obrigatórios — `base_job_variables()`, `base_env(requirements_env, dependency_mode)` e `resolve_image(image)` — e dois hooks concretos com default no-op: `validate_dependencies(repo_root, dependency_mode)` e `pre_deploy_notices()`.
+
+`BaseDeploy` **delega** para a estratégia em `_build_base_job_variables()` e `_build_base_env()` — nunca reimplementa essa lógica. As subclasses de deploy diferenciam-se apenas pela estratégia que injetam (parâmetro `execution_strategy`, default `DockerExecutionStrategy`). Isso preserva a regra de que subclasses só fornecem defaults e estendem via hooks.
+
+`DockerExecutionStrategy` é o comportamento padrão: `base_job_variables()` retorna `volumes`/`auto_remove`/`image_pull_policy`; `base_env()` injeta o caminho do certificado TLS dentro do container e gerencia dependências conforme `dependency_mode` (ver Seção 5.6.1); `resolve_image()` retorna a imagem fornecida; `validate_dependencies()` executa o check de pré-condição do auto-install.
+
+`ProcessExecutionStrategy` cobre o worker process: `base_job_variables()` e `base_env()` retornam dict vazio (o worker roda em máquina do domínio RBR — CA já confiável — e já possui `PREFECT_API_URL`); `resolve_image()` retorna `None` (process pool não usa imagem); `pre_deploy_notices()` retorna o aviso de que dependências são responsabilidade do ambiente do worker.
+
+---
+
 ### 4.5 Git Pre-Flight Check
 
 O git pre-flight check é uma etapa de verificação executada no início de `BaseDeploy.deploy()`, antes de qualquer resolução de env ou job_variables, e antes de qualquer outro output no terminal. Seu objetivo é detectar antecipadamente estados do repositório que causariam o Prefect a buscar um código diferente do que o dev está vendo localmente — uncommitted changes, commits sem push, ou submódulos com SHAs não publicados no remote.
@@ -304,13 +318,29 @@ Este método popula `self._requirements` (lista de strings) e `self._requirement
 
 Quando `self._requirements_source` é `None`, tentar `find_requirements(Path.cwd())` do `requirements_detector`. Se lançar `RequirementsNotFound`, não fazer nada — flows sem requirements são válidos. Quando `self._requirements_source` é um `Path` existente, usar `from_requirements_txt(self._requirements_source)`. Os objetos retornados pelo `requirements_detector` são convertidos para string via `str(r)`. A `_requirements_env` é a join dos strings com espaço simples.
 
+A detecção de requirements alimenta o painel informativo em todos os modos; a *injeção* de `EXTRA_PIP_PACKAGES` ocorre apenas no modo `pip_packages` (ver 5.6.1).
+
+---
+
+### 5.6.1 Gestão de Dependências — `dependency_mode`
+
+O parâmetro `dependency_mode: str = RBRDependencyMode.AUTO_INSTALL` (presente em `BaseDeploy` e nas subclasses Docker) controla como as dependências Python chegam ao ambiente de execução. É validado no `__init__` contra `RBRDependencyMode.ALL`, lançando `ValueError` via `ValidationMessages.dependency_mode_invalid()` para valores inválidos.
+
+`AUTO_INSTALL` (default) injeta `PREFECT_RUNNER_AUTO_INSTALL_DEPENDENCIES=true`, fazendo o runner do Prefect instalar via `uv`, em runtime, as dependências de `[project].dependencies` do `pyproject.toml` do repositório clonado. Não injeta `EXTRA_PIP_PACKAGES`. Como o auto-install falha silenciosamente em runtime quando suas pré-condições não são satisfeitas, `DockerExecutionStrategy.validate_dependencies()` faz um **check de pré-condição read-only no `.deploy()`**: lê o `pyproject.toml` da raiz do repositório via `tomllib` e lança `ValueError` (`PYPROJECT_NOT_FOUND` ou `PREFECT_NOT_IN_PYPROJECT`) se o arquivo não existir ou não listar `prefect`. O check espelha exatamente a condição que o Prefect verifica — não há falso positivo.
+
+`PIP_PACKAGES` preserva o comportamento legado: injeta `EXTRA_PIP_PACKAGES` a partir dos requirements detectados (compatível com `requirements.txt`), processado pelo entrypoint da imagem Docker do Prefect. Não injeta a variável de auto-install nem executa o check de pré-condição.
+
+`ProcessDeploy` **não expõe** `dependency_mode` (nem `image`): deploys process não gerenciam dependências — elas devem estar pré-instaladas no ambiente do worker, e a `ProcessExecutionStrategy` exibe um aviso no deploy. Passar `dependency_mode` a `ProcessDeploy` resulta em `TypeError` natural do Python.
+
+**Atenção:** mudar o default para `AUTO_INSTALL` é uma alteração de comportamento dos deploys Docker — incrementa a versão MAJOR. Flows que dependiam da injeção automática de `requirements.txt` devem migrar para `pyproject.toml` (com `prefect`) ou passar `dependency_mode=RBRDependencyMode.PIP_PACKAGES`.
+
 ---
 
 ### 5.7 Resolução de `job_variables` — `_resolve_job_variables()`
 
 Quando `self._job_variables_override` não é `None`, retornar diretamente sem merge — bypass total. Caso contrário, fazer merge em três camadas: `_build_base_job_variables()` (invariante RBR) → `_build_extra_job_variables()` (hook da subclasse) → `self._extra_job_variables` (adições do dev). Após o merge, injetar `env` como chave separada via `_resolve_env()`. O `env` é sempre resolvido separadamente e injetado por último para garantir que nunca seja sobrescrito acidentalmente por `extra_job_variables`.
 
-`_build_base_job_variables()` em `BaseDeploy` retorna o dict com `volumes: [RBRDocker.CERT_VOLUME]`, `auto_remove: RBRJobVariables.AUTO_REMOVE` e `image_pull_policy: RBRJobVariables.IMAGE_PULL_POLICY`. É definido em `BaseDeploy` e nunca sobrescrito pelas subclasses.
+`_build_base_job_variables()` em `BaseDeploy` **delega** para `execution_strategy.base_job_variables()`. Na `DockerExecutionStrategy`, retorna o dict com `volumes: [RBRDocker.CERT_VOLUME]`, `auto_remove: RBRJobVariables.AUTO_REMOVE` e `image_pull_policy: RBRJobVariables.IMAGE_PULL_POLICY`; na `ProcessExecutionStrategy`, retorna dict vazio. O método em `BaseDeploy` nunca é sobrescrito pelas subclasses — a variação vem da estratégia injetada.
 
 `_build_extra_job_variables()` em `BaseDeploy` retorna dict vazio. É o hook para subclasses.
 
@@ -320,7 +350,7 @@ Quando `self._job_variables_override` não é `None`, retornar diretamente sem m
 
 Quando `self._env_override` não é `None`, retornar diretamente — bypass total inclusive do env base RBR. Caso contrário, chamar `_resolve_requirements()` e então fazer merge em três camadas: `_build_base_env()` → `_build_extra_env()` → `self._extra_env`. A hierarquia de precedência é crescente: base RBR → subclasse → dev.
 
-`_build_base_env()` em `BaseDeploy` retorna o dict com as quatro variáveis invariantes da RBR, usando os nomes de `RBRBaseEnvVariables` como chaves e os valores de `RBRPrefectServer` e `RBRBlocks` como valores. Quando `self._requirements` não é `None`, adiciona `RBRBaseEnvVariables.EXTRA_PIP_PACKAGES: self._requirements_env` ao dict base.
+`_build_base_env()` em `BaseDeploy` **delega** para `execution_strategy.base_env(self._requirements_env, self._dependency_mode)`. A `DockerExecutionStrategy` injeta o caminho do certificado TLS e, conforme `dependency_mode`, a variável de auto-install ou `EXTRA_PIP_PACKAGES` (ver 5.6.1); a `ProcessExecutionStrategy` retorna dict vazio. O método em `BaseDeploy` nunca é sobrescrito pelas subclasses.
 
 `_build_extra_env()` em `BaseDeploy` retorna dict vazio. É o hook para subclasses.
 
@@ -363,6 +393,12 @@ Deploy para flows que precisam de drivers de conexão com SQL Server. O único d
 ### 6.4 `ScrapeDeploy`
 
 Deploy para flows que utilizam Playwright para automação de navegador. Diferencia-se em um aspecto: `image` tem default `RBRDocker.SCRAPE_IMAGE`. Importante: `_build_extra_env()` retorna o mesmo dict que os outros deploys. O dev que usa `ScrapeDeploy` não precisa conhecer nem fornecer essas variáveis — são responsabilidade da classe.
+
+---
+
+### 6.4.1 `ProcessDeploy`
+
+Deploy para flows que rodam em um worker do tipo **process** — o worker executa o flow como subprocesso no próprio ambiente Python, sem container Docker. Mantém a `GitHubSourceStrategy` (código continua vindo do GitHub) mas injeta `ProcessExecutionStrategy`. Diferencia-se das subclasses Docker por: usar default `work_pool_name=RBRWorkPools.PROCESS`; **não expor** os parâmetros `image` e `dependency_mode` (dependências são responsabilidade do worker); resolver `image` como `None`; e exibir um aviso no deploy via `pre_deploy_notices()`. Por injetar uma `execution_strategy` diferente — e não reimplementar lógica — permanece em conformidade com o princípio de design das subclasses.
 
 ---
 

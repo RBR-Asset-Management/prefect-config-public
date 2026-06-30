@@ -210,6 +210,8 @@ Nunca importe de `typing` `List` com L maiúsculo ou `Dict` com D maiúsculo. Ut
 - `_resolve_job_variables()` deve sempre injetar o `env` por último via `_resolve_env()`, mesmo que `extra_job_variables` contenha a chave `env`. Isso previne que o dev sobrescreva acidentalmente o env base RBR via `extra_job_variables`.
 - `_build_description()` depende de `importlib.metadata.version("rbr-prefect")` — nos testes, esta chamada deve ser mockada.
 - O parâmetro `name` de `.deploy(name=...)` é um override opcional para aquela chamada específica — não modifica `self._name`.
+- `_build_base_job_variables()` e `_build_base_env()` **delegam** para a `execution_strategy` (`DockerExecutionStrategy`/`ProcessExecutionStrategy`) — não contêm a lógica diretamente. Subclasses não os sobrescrevem; injetam uma estratégia diferente (ver `ProcessDeploy`). Ver Seção 4.6 do `REQUIREMENTS.md`.
+- `dependency_mode` (default `RBRDependencyMode.AUTO_INSTALL`) controla a gestão de dependências nos deploys Docker. No modo `auto_install`, o `.deploy()` faz um check read-only do `pyproject.toml` (deve existir e listar `prefect`) e lança `ValueError` se falhar. `ProcessDeploy` não expõe esse parâmetro. Ver Seção 5.6.1 do `REQUIREMENTS.md`.
 
 ### `__init__.py`
 

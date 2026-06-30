@@ -8,6 +8,7 @@ Executar a partir da raiz do rbr-prefect/:
 """
 
 from rbr_prefect import DefaultDeploy
+from rbr_prefect.constants import RBRDependencyMode
 from rbr_prefect.cron import CronBuilder
 from tests.flows.teste_flow import teste_flow
 
@@ -16,6 +17,9 @@ if __name__ == "__main__":
         flow_func=teste_flow,
         name="rbr-prefect-teste-flow",
         tags=["rbr-prefect", "teste"],
+        # Este flow depende de um requirements.txt — usa o modo legado pip_packages.
+        # (O default auto_install exigiria um pyproject.toml com 'prefect'.)
+        dependency_mode=RBRDependencyMode.PIP_PACKAGES,
         requirements_source="./rbr-prefect/tests/flows/requirements.txt",
     )
     deploy.parameters = deploy.override(country_name="Brazil")

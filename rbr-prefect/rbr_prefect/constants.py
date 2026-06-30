@@ -56,6 +56,10 @@ class RBRWorkPools:
     """Nomes dos work pools do Prefect configurados no servidor da RBR."""
 
     DEFAULT = "default"
+    PROCESS = "windows"
+
+    # Work pools RBR conhecidos — nao disparam o prompt de override de work pool.
+    KNOWN = (DEFAULT, PROCESS)
 
 
 class RBRBlocks:
@@ -111,6 +115,34 @@ class RBRJobVariables:
     IMAGE_PULL_POLICY = "IfNotPresent"
 
 
+class RBRDependencyMode:
+    """
+    Estrategias de gestao de dependencias Python no ambiente de execucao.
+
+    AUTO_INSTALL injeta PREFECT_RUNNER_AUTO_INSTALL_DEPENDENCIES=true, fazendo o
+    runner instalar via `uv` as dependencias declaradas em [project].dependencies
+    do pyproject.toml do repositorio, em runtime. Requer que `prefect` conste
+    nessas dependencias.
+
+    PIP_PACKAGES injeta EXTRA_PIP_PACKAGES (compatibilidade com requirements.txt)
+    processado pelo entrypoint da imagem Docker do Prefect.
+
+    Aplica-se apenas a deploys em imagem Docker — deploys em work pool process
+    nao gerenciam dependencias (sao responsabilidade do ambiente do worker).
+    """
+
+    AUTO_INSTALL = "auto_install"
+    PIP_PACKAGES = "pip_packages"
+
+    ALL = (AUTO_INSTALL, PIP_PACKAGES)
+
+    # Valor injetado na env var de auto-install.
+    ENABLED_VALUE = "true"
+
+    # Pacote que deve constar em [project].dependencies para o auto-install funcionar.
+    REQUIRED_PACKAGE = "prefect"
+
+
 class RBRDateTimeConvention:
     TIMEZONE = "America/Sao_Paulo"
     CRON_DESCRIPTOR_LOCALE = "pt_PT"
@@ -136,3 +168,4 @@ class RBRBaseEnvVariables:
     PREFECT_API_AUTH_STRING = "PREFECT_API_AUTH_STRING"
     PREFECT_CLIENT_CUSTOM_HEADERS = "PREFECT_CLIENT_CUSTOM_HEADERS"
     EXTRA_PIP_PACKAGES = "EXTRA_PIP_PACKAGES"
+    PREFECT_RUNNER_AUTO_INSTALL_DEPENDENCIES = "PREFECT_RUNNER_AUTO_INSTALL_DEPENDENCIES"

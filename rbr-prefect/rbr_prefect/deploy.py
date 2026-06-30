@@ -9,7 +9,9 @@ import datetime
 import importlib.metadata
 import inspect
 import os
+import re
 import subprocess
+import tomllib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Callable, Generic, ParamSpec
@@ -29,6 +31,7 @@ from rbr_prefect._cli import (
     confirm_work_pool_override,
     print_audit_panel,
     print_env_panel,
+    print_execution_notices,
     print_git_check_panel,
     confirm_deploy,
     print_handoff,
@@ -37,11 +40,13 @@ from rbr_prefect._cli import (
 from rbr_prefect._cli.messages import (
     DeployMessages,
     GitCheckMessages,
+    ProcessMessages,
     RequirementsMessages,
     ValidationMessages,
 )
 from rbr_prefect.constants import (
     RBRBlocks,
+    RBRDependencyMode,
     RBRDocker,
     RBRJobVariables,
     RBRPrefectServer,
@@ -73,9 +78,21 @@ def _get_underlying_function(flow_func: Callable) -> Callable:
     return flow_func
 
 
+def _requirement_name(spec: str) -> str:
+    """
+    Extrai o nome normalizado de um pacote a partir de uma especificacao de
+    dependencia PEP 508.
+
+    Exemplos: 'prefect>=3.0.0' -> 'prefect'; 'prefect[extra]>=3' -> 'prefect';
+    'my_pkg ; python_version >= "3.12"' -> 'my-pkg'.
+    """
+    name = re.split(r"[<>=!~;\[\(\s]", spec, maxsplit=1)[0]
+    return name.strip().lower().replace("_", "-")
+
+
 @dataclasses.dataclass
 class GitCheckIssue:
-    check: str    # nome do check que falhou (usar constante de messages.py)
+    check: str  # nome do check que falhou (usar constante de messages.py)
     details: str  # descrição legível do problema encontrado
 
 
@@ -261,9 +278,8 @@ class GitHubSourceStrategy(BaseSourceStrategy):
             text=True,
             check=False,
         )
-        has_submodules = (
-            submodule_status.returncode == 0
-            and bool(submodule_status.stdout.strip())
+        has_submodules = submodule_status.returncode == 0 and bool(
+            submodule_status.stdout.strip()
         )
 
         # Check 2 — Dirty check nos submódulos
@@ -338,7 +354,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
                     "foreach",
                     "--quiet",
                     "--recursive",
-                    'git log origin/$(git rev-parse --abbrev-ref HEAD)..HEAD --oneline',
+                    "git log origin/$(git rev-parse --abbrev-ref HEAD)..HEAD --oneline",
                 ],
                 capture_output=True,
                 text=True,
@@ -442,6 +458,148 @@ class DockerSourceStrategy(BaseSourceStrategy):
 
 
 # =============================================================================
+# Execution Strategies
+# =============================================================================
+
+
+class BaseExecutionStrategy(ABC):
+    """
+    Classe base abstrata que define o contrato para estrategias de execucao.
+
+    A execution strategy responde a pergunta: ONDE e COMO o flow executa?
+    Concentra as diferencas entre rodar em um container Docker e rodar como
+    subprocesso em um worker process: job_variables base, env base, imagem e
+    validacao de dependencias.
+
+    BaseDeploy delega para a estrategia — nunca reimplementa essa logica. As
+    subclasses de deploy diferenciam-se apenas pela estrategia que injetam.
+    """
+
+    @abstractmethod
+    def base_job_variables(self) -> dict[str, Any]:
+        """Retorna o dict base de job_variables (invariante do ambiente)."""
+        ...
+
+    @abstractmethod
+    def base_env(
+        self, requirements_env: str | None, dependency_mode: str
+    ) -> dict[str, str]:
+        """Retorna o dict base de variaveis de ambiente do ambiente de execucao."""
+        ...
+
+    @abstractmethod
+    def resolve_image(self, image: str | None) -> str | None:
+        """
+        Resolve a imagem a usar no deploy. Docker retorna a imagem fornecida;
+        process retorna None (nao usa imagem).
+        """
+        ...
+
+    def validate_dependencies(self, repo_root: Path, dependency_mode: str) -> None:
+        """
+        Hook de validacao de dependencias antes do deploy. Default: no-op.
+
+        Sobrescrito por DockerExecutionStrategy para garantir as pre-condicoes
+        do auto-install via uv.
+        """
+        return None
+
+    def pre_deploy_notices(self) -> list[str]:
+        """Avisos a exibir no terminal durante o deploy. Default: nenhum."""
+        return []
+
+
+class DockerExecutionStrategy(BaseExecutionStrategy):
+    """
+    Estrategia de execucao em container Docker (comportamento padrao da RBR).
+
+    Monta os job_variables de container (volume de certificados, auto_remove,
+    image_pull_policy), injeta o caminho do certificado TLS dentro do container
+    e gerencia dependencias via auto-install (uv) ou EXTRA_PIP_PACKAGES.
+    """
+
+    def base_job_variables(self) -> dict[str, Any]:
+        return {
+            "volumes": [RBRDocker.CERT_VOLUME],
+            "auto_remove": RBRJobVariables.AUTO_REMOVE,
+            "image_pull_policy": RBRJobVariables.IMAGE_PULL_POLICY,
+        }
+
+    def base_env(
+        self, requirements_env: str | None, dependency_mode: str
+    ) -> dict[str, str]:
+        env = {
+            RBRBaseEnvVariables.PREFECT_API_SSL_CERT_FILE: RBRPrefectServer.SSL_CERT_PATH,
+        }
+
+        if dependency_mode == RBRDependencyMode.AUTO_INSTALL:
+            env[RBRBaseEnvVariables.PREFECT_RUNNER_AUTO_INSTALL_DEPENDENCIES] = (
+                RBRDependencyMode.ENABLED_VALUE
+            )
+        elif dependency_mode == RBRDependencyMode.PIP_PACKAGES:
+            if requirements_env:
+                env[RBRBaseEnvVariables.EXTRA_PIP_PACKAGES] = requirements_env
+
+        return env
+
+    def resolve_image(self, image: str | None) -> str | None:
+        return image
+
+    def validate_dependencies(self, repo_root: Path, dependency_mode: str) -> None:
+        """
+        Garante as pre-condicoes do auto-install: o repositorio deve ter um
+        pyproject.toml com 'prefect' em [project].dependencies. Caso contrario o
+        auto-install falharia silenciosamente em runtime — entao falhamos cedo,
+        no deploy, com mensagem orientativa.
+
+        E read-only (apenas le o pyproject.toml local) — respeita a invariante
+        de efeitos colaterais.
+        """
+        if dependency_mode != RBRDependencyMode.AUTO_INSTALL:
+            return
+
+        pyproject = repo_root / "pyproject.toml"
+        if not pyproject.exists():
+            raise ValueError(
+                f"{ValidationMessages.PYPROJECT_NOT_FOUND} ({pyproject})"
+            )
+
+        with open(pyproject, "rb") as fh:
+            data = tomllib.load(fh)
+
+        dependencies = data.get("project", {}).get("dependencies", []) or []
+        names = {_requirement_name(str(dep)) for dep in dependencies}
+        if RBRDependencyMode.REQUIRED_PACKAGE not in names:
+            raise ValueError(ValidationMessages.PREFECT_NOT_IN_PYPROJECT)
+
+
+class ProcessExecutionStrategy(BaseExecutionStrategy):
+    """
+    Estrategia de execucao em worker do tipo process.
+
+    O worker executa o flow como subprocesso no proprio ambiente Python, sem
+    container. Nao ha imagem, volumes nem certificado a injetar (o worker roda
+    em maquina do dominio RBR, que ja confia na CA, e ja possui PREFECT_API_URL
+    no ambiente). Dependencias sao responsabilidade do ambiente do worker — esta
+    estrategia nao as gerencia e avisa o dev no deploy.
+    """
+
+    def base_job_variables(self) -> dict[str, Any]:
+        return {}
+
+    def base_env(
+        self, requirements_env: str | None, dependency_mode: str
+    ) -> dict[str, str]:
+        return {}
+
+    def resolve_image(self, image: str | None) -> None:
+        return None
+
+    def pre_deploy_notices(self) -> list[str]:
+        return [ProcessMessages.WORKER_DEPS_WARNING]
+
+
+# =============================================================================
 # Deploy Classes
 # =============================================================================
 
@@ -466,8 +624,11 @@ class BaseDeploy(Generic[P]):
         github_url: str | None = None,
         branch: str | None = None,
         entrypoint: str | None = None,
+        # --- Execution (override opcional) ---
+        execution_strategy: BaseExecutionStrategy | None = None,
         # --- Python Requirements ---
         requirements_source: Path | str | None = None,
+        dependency_mode: str = RBRDependencyMode.AUTO_INSTALL,
         # --- Imagem Docker ---
         image: str = RBRDocker.DEFAULT_IMAGE,
         # --- Work pool ---
@@ -493,8 +654,16 @@ class BaseDeploy(Generic[P]):
         if env_override is not None and extra_env is not None:
             raise ValueError(ValidationMessages.ENV_MUTEX)
 
-        # 4. Prompt de confirmacao se work_pool != default
-        if work_pool_name != RBRWorkPools.DEFAULT:
+        # 3b. Validar dependency_mode
+        if dependency_mode not in RBRDependencyMode.ALL:
+            raise ValueError(
+                ValidationMessages.dependency_mode_invalid(
+                    dependency_mode, ", ".join(RBRDependencyMode.ALL)
+                )
+            )
+
+        # 4. Prompt de confirmacao se work_pool nao for um pool RBR conhecido
+        if work_pool_name not in RBRWorkPools.KNOWN:
             if not confirm_work_pool_override(work_pool_name):
                 raise SystemExit(0)
 
@@ -511,6 +680,12 @@ class BaseDeploy(Generic[P]):
                 github_url=github_url,
                 branch=branch,
             )
+
+        # 6b. Instanciar execution_strategy (default: Docker)
+        if execution_strategy is not None:
+            self._execution_strategy = execution_strategy
+        else:
+            self._execution_strategy = DockerExecutionStrategy()
 
         # 7. Resolver entrypoint
         self._entrypoint = entrypoint or self._source_strategy.resolve_entrypoint(
@@ -530,6 +705,7 @@ class BaseDeploy(Generic[P]):
             self._requirements_source: Path | None = Path(requirements_source)
         else:
             self._requirements_source = requirements_source
+        self._dependency_mode = dependency_mode
         self._work_pool_name = work_pool_name
         self._extra_job_variables = extra_job_variables or {}
         self._job_variables_override = job_variables_override
@@ -600,12 +776,8 @@ class BaseDeploy(Generic[P]):
     # -------------------------------------------------------------------------
 
     def _build_base_job_variables(self) -> dict[str, Any]:
-        """Constroi o dict base de job_variables (invariante RBR)."""
-        return {
-            "volumes": [RBRDocker.CERT_VOLUME],
-            "auto_remove": RBRJobVariables.AUTO_REMOVE,
-            "image_pull_policy": RBRJobVariables.IMAGE_PULL_POLICY,
-        }
+        """Delega o dict base de job_variables para a execution strategy."""
+        return self._execution_strategy.base_job_variables()
 
     def _build_extra_job_variables(self) -> dict[str, Any]:
         """Hook para subclasses adicionarem job_variables especificos."""
@@ -687,15 +859,10 @@ class BaseDeploy(Generic[P]):
     # -------------------------------------------------------------------------
 
     def _build_base_env(self) -> dict[str, str]:
-        """Constroi o dict base de env (variáveis RBR)."""
-        base_env = {
-            RBRBaseEnvVariables.PREFECT_API_SSL_CERT_FILE: RBRPrefectServer.SSL_CERT_PATH,
-        }
-
-        if self._requirements:
-            base_env[RBRBaseEnvVariables.EXTRA_PIP_PACKAGES] = self._requirements_env
-
-        return base_env
+        """Delega o dict base de env para a execution strategy."""
+        return self._execution_strategy.base_env(
+            self._requirements_env, self._dependency_mode
+        )
 
     def _build_extra_env(self) -> dict[str, str]:
         """Hook para subclasses adicionarem variaveis de ambiente especificas."""
@@ -799,13 +966,11 @@ class BaseDeploy(Generic[P]):
         self - permite encadeamento com .deploy().
         """
         # Validar exclusividade mutua
-        provided = sum(
-            [
-                cron is not None,
-                interval is not None,
-                rrule is not None,
-            ]
-        )
+        provided = sum([
+            cron is not None,
+            interval is not None,
+            rrule is not None,
+        ])
         if provided == 0:
             raise ValueError(ValidationMessages.SCHEDULE_REQUIRED)
         if provided > 1:
@@ -895,9 +1060,17 @@ class BaseDeploy(Generic[P]):
             else:
                 print_git_check_panel([])
 
+            # Dependency pre-flight: AUTO_INSTALL exige pyproject.toml com 'prefect'.
+            # Falha cedo (read-only) em vez de quebrar silenciosamente em runtime.
+            self._execution_strategy.validate_dependencies(
+                self._source_strategy.resolved_repo_root,
+                self._dependency_mode,
+            )
+
         # Resolver valores automáticos
         env = self._resolve_env()
         job_variables = self._resolve_job_variables()
+        image = self._execution_strategy.resolve_image(self._image)
 
         # Preparar dados para o painel de auditoria
         resolved = {
@@ -905,10 +1078,12 @@ class BaseDeploy(Generic[P]):
             DeployMessages.LABEL_BRANCH: self._source_strategy.resolved_branch,
             DeployMessages.LABEL_ENTRYPOINT: self._entrypoint,
             DeployMessages.LABEL_NAME: deploy_name,
-            DeployMessages.LABEL_IMAGE: self._image,
-            DeployMessages.LABEL_WORK_POOL: self._work_pool_name,
-            DeployMessages.LABEL_TAGS: self._tags,
         }
+        # Imagem so e exibida quando a estrategia a utiliza (process retorna None)
+        if image is not None:
+            resolved[DeployMessages.LABEL_IMAGE] = image
+        resolved[DeployMessages.LABEL_WORK_POOL] = self._work_pool_name
+        resolved[DeployMessages.LABEL_TAGS] = self._tags
 
         if self._schedule is not None:
             resolved[DeployMessages.LABEL_SCHEDULE] = (
@@ -933,6 +1108,9 @@ class BaseDeploy(Generic[P]):
         # Exibir painel de requirements (entre valores resolvidos e env)
         print_requirements_panel(self._requirements, self._requirements_detection_mode)
 
+        # Exibir avisos da execution strategy (ex.: deps no worker para process)
+        print_execution_notices(self._execution_strategy.pre_deploy_notices())
+
         # Exibir painel de env resolvido
         print_env_panel(env)
 
@@ -953,7 +1131,7 @@ class BaseDeploy(Generic[P]):
         deployable.deploy(
             name=deploy_name,
             work_pool_name=self._work_pool_name,
-            image=self._image,
+            image=image,
             build=False,
             push=False,
             job_variables=job_variables,
@@ -986,6 +1164,7 @@ class DefaultDeploy(BaseDeploy[P]):
         entrypoint: str | None = None,
         image: str = RBRDocker.DEFAULT_IMAGE,
         requirements_source: Path | str | None = None,
+        dependency_mode: str = RBRDependencyMode.AUTO_INSTALL,
         work_pool_name: str = RBRWorkPools.DEFAULT,
         extra_job_variables: dict[str, Any] | None = None,
         job_variables_override: dict[str, Any] | None = None,
@@ -1003,6 +1182,7 @@ class DefaultDeploy(BaseDeploy[P]):
             entrypoint=entrypoint,
             image=image,
             requirements_source=requirements_source,
+            dependency_mode=dependency_mode,
             work_pool_name=work_pool_name,
             extra_job_variables=extra_job_variables,
             job_variables_override=job_variables_override,
@@ -1032,6 +1212,7 @@ class SQLDeploy(BaseDeploy[P]):
         entrypoint: str | None = None,
         image: str = RBRDocker.SQL_IMAGE,
         requirements_source: Path | str | None = None,
+        dependency_mode: str = RBRDependencyMode.AUTO_INSTALL,
         work_pool_name: str = RBRWorkPools.DEFAULT,
         extra_job_variables: dict[str, Any] | None = None,
         job_variables_override: dict[str, Any] | None = None,
@@ -1049,6 +1230,7 @@ class SQLDeploy(BaseDeploy[P]):
             entrypoint=entrypoint,
             image=image,
             requirements_source=requirements_source,
+            dependency_mode=dependency_mode,
             work_pool_name=work_pool_name,
             extra_job_variables=extra_job_variables,
             job_variables_override=job_variables_override,
@@ -1082,6 +1264,7 @@ class ScrapeDeploy(BaseDeploy[P]):
         entrypoint: str | None = None,
         image: str = RBRDocker.SCRAPE_IMAGE,
         requirements_source: Path | str | None = None,
+        dependency_mode: str = RBRDependencyMode.AUTO_INSTALL,
         work_pool_name: str = RBRWorkPools.DEFAULT,
         extra_job_variables: dict[str, Any] | None = None,
         job_variables_override: dict[str, Any] | None = None,
@@ -1098,6 +1281,61 @@ class ScrapeDeploy(BaseDeploy[P]):
             branch=branch,
             entrypoint=entrypoint,
             image=image,
+            requirements_source=requirements_source,
+            dependency_mode=dependency_mode,
+            work_pool_name=work_pool_name,
+            extra_job_variables=extra_job_variables,
+            job_variables_override=job_variables_override,
+            extra_env=extra_env,
+            env_override=env_override,
+            concurrency_limit=concurrency_limit,
+        )
+
+
+class ProcessDeploy(BaseDeploy[P]):
+    """
+    Deploy para flows que rodam em um worker do tipo process.
+
+    O worker executa o flow como subprocesso no proprio ambiente Python, sem
+    container Docker. O codigo continua sendo buscado do GitHub (mesma source
+    strategy dos demais deploys).
+
+    Diferente dos deploys Docker, ProcessDeploy NAO gerencia dependencias
+    Python — elas devem estar pre-instaladas no ambiente do worker. Por isso a
+    classe nao expoe os parametros `image` nem `dependency_mode`, e exibe um
+    aviso no deploy. Tambem nao injeta certificado TLS nem PREFECT_API_URL: o
+    worker roda em maquina do dominio RBR (CA ja confiavel) e ja esta conectado
+    ao servidor Prefect.
+
+    Por padrao usa o work pool process da RBR (RBRWorkPools.PROCESS).
+    """
+
+    def __init__(
+        self,
+        flow_func: Callable[P, Any],
+        name: str,
+        tags: list[str],
+        source_strategy: BaseSourceStrategy | None = None,
+        github_url: str | None = None,
+        branch: str | None = None,
+        entrypoint: str | None = None,
+        requirements_source: Path | str | None = None,
+        work_pool_name: str = RBRWorkPools.PROCESS,
+        extra_job_variables: dict[str, Any] | None = None,
+        job_variables_override: dict[str, Any] | None = None,
+        extra_env: dict[str, str] | None = None,
+        env_override: dict[str, str] | None = None,
+        concurrency_limit: int | None = None,
+    ) -> None:
+        super().__init__(
+            flow_func=flow_func,
+            name=name,
+            tags=tags,
+            source_strategy=source_strategy,
+            github_url=github_url,
+            branch=branch,
+            entrypoint=entrypoint,
+            execution_strategy=ProcessExecutionStrategy(),
             requirements_source=requirements_source,
             work_pool_name=work_pool_name,
             extra_job_variables=extra_job_variables,

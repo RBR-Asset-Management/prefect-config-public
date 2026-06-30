@@ -176,6 +176,27 @@ def print_env_panel(env: dict) -> None:
     _console.print()
 
 
+def print_execution_notices(notices: list[str]) -> None:
+    """
+    Exibe avisos da estrategia de execucao como paineis amarelos.
+
+    Usada, por exemplo, para alertar que deploys process nao gerenciam
+    dependencias Python. As strings ja chegam resolvidas de messages.py.
+
+    Parameters
+    ----------
+    notices : list[str]
+        Mensagens de aviso a exibir. Lista vazia nao exibe nada.
+    """
+    for notice in notices:
+        _console.print(
+            Panel(
+                f"[bold yellow]{notice}[/bold yellow]",
+                border_style="yellow",
+            )
+        )
+
+
 def print_handoff(name: str) -> None:
     """
     Exibe o separador visual de passagem de responsabilidade ao Prefect.

@@ -12,6 +12,7 @@ from rbr_prefect._cli.ui import (
     confirm_work_pool_override,
     print_audit_panel,
     print_env_panel,
+    print_execution_notices,
     print_git_check_panel,
     print_handoff,
     confirm_deploy,
@@ -21,6 +22,7 @@ from rbr_prefect._cli.ui import (
 __all__ = [
     "print_audit_panel",
     "print_env_panel",
+    "print_execution_notices",
     "print_handoff",
     "confirm_deploy",
     "print_requirements_panel",
