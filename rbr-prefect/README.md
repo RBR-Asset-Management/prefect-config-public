@@ -59,6 +59,15 @@ deploy.deploy()
 
 ---
 
+## Documentação
+
+- [Deploy em worker process (`ProcessDeploy`)](docs/deploy-process.md) — como
+  rodar flows direto no worker, sem Docker.
+- [Migração para auto-install de dependências (1.0.0)](docs/migracao-auto-install.md)
+  — o que mudou na gestão de dependências e como migrar.
+
+---
+
 ## Release: Bump de Versão e Publicação no PyPI
 
 O processo de publicação é inteiramente local, sem pipeline de CI/CD.
