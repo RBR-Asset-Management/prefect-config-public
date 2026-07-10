@@ -16,6 +16,7 @@ from rich.table import Table
 from rbr_prefect._cli.messages import (
     ConcurrencyMessages,
     DeployMessages,
+    EmailTriggerMessages,
     EnvMessages,
     GitCheckMessages,
     JobVariablesMessages,
@@ -312,6 +313,97 @@ def confirm_git_issues() -> bool:
     if not confirmed:
         _console.print(GitCheckMessages.ABORTED, style="red")
     return confirmed
+
+
+def print_trigger_summary(
+    recipients: list[str],
+    subject: str,
+    cc: list[str],
+    bcc: list[str],
+    attachments_count: int,
+    wait: bool,
+) -> None:
+    """
+    Exibe o painel-resumo do disparo do fluxo de envio de e-mail.
+
+    Parameters
+    ----------
+    recipients : list[str]
+        Destinatarios principais (to).
+    subject : str
+        Assunto do e-mail.
+    cc : list[str]
+        Destinatarios em copia.
+    bcc : list[str]
+        Destinatarios em copia oculta.
+    attachments_count : int
+        Quantidade de anexos normalizados.
+    wait : bool
+        True quando o disparo aguarda a conclusao do flow.
+    """
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Campo", style="cyan")
+    table.add_column("Valor", style="white")
+
+    table.add_row(EmailTriggerMessages.LABEL_TO, ", ".join(recipients))
+    if cc:
+        table.add_row(EmailTriggerMessages.LABEL_CC, ", ".join(cc))
+    if bcc:
+        table.add_row(EmailTriggerMessages.LABEL_BCC, ", ".join(bcc))
+    table.add_row(EmailTriggerMessages.LABEL_SUBJECT, subject)
+    table.add_row(EmailTriggerMessages.LABEL_ATTACHMENTS, str(attachments_count))
+    mode = (
+        EmailTriggerMessages.MODE_WAIT
+        if wait
+        else EmailTriggerMessages.MODE_FIRE_AND_FORGET
+    )
+    table.add_row(EmailTriggerMessages.LABEL_MODE, mode)
+
+    _console.print()
+    _console.print(
+        Panel(
+            table,
+            title=f"[bold]{EmailTriggerMessages.PANEL_HEADER}[/bold]",
+            border_style="blue",
+        )
+    )
+
+
+def print_trigger_result(
+    flow_run_name: str,
+    flow_run_id: str,
+    state_name: str | None,
+) -> None:
+    """
+    Exibe o painel de resultado do disparo do fluxo de envio de e-mail.
+
+    Parameters
+    ----------
+    flow_run_name : str
+        Nome do flow run criado.
+    flow_run_id : str
+        Identificador (UUID) do flow run criado.
+    state_name : str | None
+        Nome do estado final do flow run, ou None quando o disparo retorna
+        sem aguardar a conclusao (fire-and-forget).
+    """
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Campo", style="green")
+    table.add_column("Valor", style="white")
+
+    table.add_row(EmailTriggerMessages.LABEL_FLOW_RUN, flow_run_name)
+    table.add_row(EmailTriggerMessages.LABEL_FLOW_RUN_ID, flow_run_id)
+    if state_name is not None:
+        table.add_row(EmailTriggerMessages.LABEL_STATE, state_name)
+
+    _console.print(
+        Panel(
+            table,
+            title=f"[bold]{EmailTriggerMessages.RESULT_HEADER}[/bold]",
+            border_style="green",
+        )
+    )
+    _console.print()
 
 
 def confirm_advanced_schedule() -> bool:

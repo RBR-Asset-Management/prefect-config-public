@@ -199,6 +199,13 @@ class ValidationMessages:
         "Adicione 'prefect' as dependencias, ou use dependency_mode='pip_packages'."
     )
 
+    # --- Envio de e-mail (EnvioEmailTrigger) ---
+    EMAIL_TO_REQUIRED = (
+        "A lista de destinatarios 'to' e obrigatoria e nao pode ser vazia."
+    )
+    EMAIL_SUBJECT_REQUIRED = "O assunto 'subject' e obrigatorio."
+    EMAIL_BODY_REQUIRED = "O corpo 'body_html' e obrigatorio."
+
     _INVALID_PARAM = (
         "Parametro de override invalido: '{param}'. "
         "A funcao '{flow}' nao possui esse parametro."
@@ -209,6 +216,24 @@ class ValidationMessages:
     )
     _DEPENDENCY_MODE_INVALID = (
         "dependency_mode invalido: '{mode}'. Valores aceitos: {allowed}."
+    )
+    _ATTACHMENT_INVALID_TYPE = (
+        "Anexo #{index} tem tipo invalido: '{kind}'. Use um caminho (str ou Path), "
+        "uma tupla (nome, bytes) ou um dict {{'name': str, 'content': str base64}}."
+    )
+    _ATTACHMENT_NOT_FOUND = "Anexo #{index}: arquivo nao encontrado em '{path}'."
+    _ATTACHMENT_NOT_FILE = "Anexo #{index}: '{path}' nao e um arquivo."
+    _ATTACHMENT_DICT_KEYS = (
+        "Anexo #{index}: o dict deve conter 'name' (str nao vazia) e "
+        "'content' (str em base64)."
+    )
+    _ATTACHMENT_INVALID_B64 = (
+        "Anexo #{index} ('{name}'): 'content' nao e um base64 valido. "
+        "Forneca o conteudo codificado em base64 ou passe o caminho do arquivo."
+    )
+    _ATTACHMENT_TOO_LARGE = (
+        "Anexo #{index} ('{name}') tem {size_mb:.1f} MB, acima do limite de "
+        "{limit_mb:.0f} MB por anexo imposto pelo flow."
     )
 
     @staticmethod
@@ -224,6 +249,60 @@ class ValidationMessages:
         return ValidationMessages._DEPENDENCY_MODE_INVALID.format(
             mode=mode, allowed=allowed
         )
+
+    @staticmethod
+    def attachment_invalid_type(index: int, kind: str) -> str:
+        return ValidationMessages._ATTACHMENT_INVALID_TYPE.format(
+            index=index, kind=kind
+        )
+
+    @staticmethod
+    def attachment_not_found(index: int, path: str) -> str:
+        return ValidationMessages._ATTACHMENT_NOT_FOUND.format(index=index, path=path)
+
+    @staticmethod
+    def attachment_not_file(index: int, path: str) -> str:
+        return ValidationMessages._ATTACHMENT_NOT_FILE.format(index=index, path=path)
+
+    @staticmethod
+    def attachment_dict_keys(index: int) -> str:
+        return ValidationMessages._ATTACHMENT_DICT_KEYS.format(index=index)
+
+    @staticmethod
+    def attachment_invalid_b64(index: int, name: str) -> str:
+        return ValidationMessages._ATTACHMENT_INVALID_B64.format(index=index, name=name)
+
+    @staticmethod
+    def attachment_too_large(
+        index: int, name: str, size_mb: float, limit_mb: float
+    ) -> str:
+        return ValidationMessages._ATTACHMENT_TOO_LARGE.format(
+            index=index, name=name, size_mb=size_mb, limit_mb=limit_mb
+        )
+
+
+class EmailTriggerMessages:
+    """Mensagens do disparo do fluxo de envio de e-mail (EnvioEmailTrigger)."""
+
+    PANEL_HEADER = "Envio de E-mail — Disparo"
+    RESULT_HEADER = "Envio de E-mail — Resultado"
+
+    # Labels do painel de disparo
+    LABEL_TO = "destinatarios"
+    LABEL_CC = "cc"
+    LABEL_BCC = "bcc"
+    LABEL_SUBJECT = "assunto"
+    LABEL_ATTACHMENTS = "anexos"
+    LABEL_MODE = "modo"
+
+    # Labels do painel de resultado
+    LABEL_FLOW_RUN = "flow run"
+    LABEL_FLOW_RUN_ID = "id"
+    LABEL_STATE = "estado"
+
+    # Modos de execucao
+    MODE_WAIT = "aguarda conclusao"
+    MODE_FIRE_AND_FORGET = "dispara e retorna"
 
 
 __all__ = ["_localize_weekdays", "_localize_months"]

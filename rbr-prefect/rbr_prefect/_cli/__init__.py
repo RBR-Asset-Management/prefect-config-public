@@ -15,6 +15,8 @@ from rbr_prefect._cli.ui import (
     print_execution_notices,
     print_git_check_panel,
     print_handoff,
+    print_trigger_result,
+    print_trigger_summary,
     confirm_deploy,
     print_requirements_panel,
 )
@@ -24,6 +26,8 @@ __all__ = [
     "print_env_panel",
     "print_execution_notices",
     "print_handoff",
+    "print_trigger_result",
+    "print_trigger_summary",
     "confirm_deploy",
     "print_requirements_panel",
     "confirm_work_pool_override",

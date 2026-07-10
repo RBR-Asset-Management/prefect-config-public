@@ -169,3 +169,29 @@ class RBRBaseEnvVariables:
     PREFECT_CLIENT_CUSTOM_HEADERS = "PREFECT_CLIENT_CUSTOM_HEADERS"
     EXTRA_PIP_PACKAGES = "EXTRA_PIP_PACKAGES"
     PREFECT_RUNNER_AUTO_INSTALL_DEPENDENCIES = "PREFECT_RUNNER_AUTO_INSTALL_DEPENDENCIES"
+
+
+class RBREmailFlow:
+    """
+    Identificadores do deployment de envio de e-mail via Microsoft Graph (Outlook).
+
+    O flow correspondente vive no repositorio `fluxo-envio-email-comitech`
+    (pacote `envio_email_outlook`, funcao `enviar_email`) e envia e-mails a partir
+    da caixa de integracao configurada no bloco de credenciais MSAL. Este deployment
+    e disparado por outros fluxos/scripts da RBR via EnvioEmailTrigger.
+    """
+
+    # ID do deployment registrado no servidor Prefect da RBR. run_deployment aceita
+    # o UUID diretamente, o que e mais robusto que a referencia "flow/deployment".
+    # ATENCAO: atualizar apos cada novo deploy do flow (o ID muda quando o nome do
+    # flow muda, pois passa a ser um novo flow no servidor Prefect).
+    DEPLOYMENT_ID = "73986bd5-0d33-419e-b302-054b6cb6c2cc"
+
+    # Referencia textual "flow name/deployment name" (fallback/documentacao).
+    DEPLOYMENT_REFERENCE = "Envio e-mail comitech/enviar-email-outlook"
+
+    # Slug default do bloco MSALCredentials usado pelo flow para autenticar no Graph.
+    DEFAULT_BLOCK_SLUG = "msal-app-credentials"
+
+    # Limite de tamanho por anexo imposto pelo flow (25 MB, via Microsoft Graph).
+    MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024
