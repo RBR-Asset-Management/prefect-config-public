@@ -1805,7 +1805,7 @@ wheels = [
 
 [[package]]
 name = "rbr-prefect"
-version = "0.3.17"
+version = "1.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "cron-builder" },
