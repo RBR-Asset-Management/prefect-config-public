@@ -19,7 +19,7 @@ from rbr_prefect.deploy import (
 )
 from rbr_prefect.trigger import EnvioEmailTrigger
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 __all__ = [
     "DefaultDeploy",
