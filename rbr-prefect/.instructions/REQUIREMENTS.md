@@ -46,7 +46,7 @@ As dependências de desenvolvimento — `bump2version`, `pytest`, `pytest-mock` 
 
 ### 1.5 Estrutura de Diretórios
 
-O repositório contém os seguintes componentes relevantes: `rbr_prefect/__init__.py` controla a superfície pública do pacote. `rbr_prefect/constants.py` é a fonte única de verdade para toda configuração de infraestrutura. `rbr_prefect/deploy.py` contém todas as classes de deploy e estratégias de source. `rbr_prefect/cron.py` é um módulo wrapper que reexporta a API pública do `cron_builder`. `rbr_prefect/blocks/` contém as definições de blocos customizados do Prefect para a RBR. `rbr_prefect/_cli/` é o submódulo privado de interface de terminal, com `messages.py` para textos e `ui.py` para formatação. O diretório `tests/` contém os testes automatizados e scripts de deploy de teste.
+O repositório contém os seguintes componentes relevantes: `rbr_prefect/__init__.py` controla a superfície pública do pacote. `rbr_prefect/constants.py` é a fonte única de verdade para toda configuração de infraestrutura. `rbr_prefect/deploy.py` contém todas as classes de deploy e estratégias de source. `rbr_prefect/_interaction.py` é o módulo privado que resolve o modo de interação e os acks de invocação (Seção 12.4). `rbr_prefect/cron.py` é um módulo wrapper que reexporta a API pública do `cron_builder`. `rbr_prefect/blocks/` contém as definições de blocos customizados do Prefect para a RBR. `rbr_prefect/_cli/` é o submódulo privado de interface de terminal, com `messages.py` para textos e `ui.py` para formatação. O diretório `tests/` contém os testes automatizados e scripts de deploy de teste.
 
 ---
 
@@ -59,6 +59,8 @@ O repositório contém os seguintes componentes relevantes: `rbr_prefect/__init_
 `_cli/messages.py` é autorizado a conter textos literais de terminal e factories de interpolação, e é proibido de conter lógica de apresentação.
 
 `_cli/ui.py` é autorizado a conter lógica de formatação, prompts e prints com `rich`, e é proibido de conter qualquer texto literal — apenas referências a `messages.py`.
+
+`_interaction.py` é autorizado a ler `sys.argv` e `os.environ` e a responder perguntas sobre o modo de interação. É proibido de imprimir, de importar qualquer coisa de `_cli`, e de tomar decisões de fluxo — não aborta, não prompta e não decide. Toda decisão baseada nas suas respostas é de `deploy.py`.
 
 `cron.py` é exclusivamente um módulo de reexportação. Não contém lógica própria.
 
@@ -164,13 +166,15 @@ Cada classe de mensagens segue uma convenção de três tipos de membros. Consta
 
 `ScheduleMessages` contém o aviso sobre configurações avançadas de schedule, a pergunta de confirmação e a mensagem de abort.
 
-`ValidationMessages` contém todas as mensagens de erro lançadas como exceções: `TAGS_REQUIRED`, `REQUIREMENTS_PATH_INVALID`, `NAME_REQUIRED`, `OUTSIDE_GIT_REPO`, `NO_REMOTE_ORIGIN`, `ENTRYPOINT_OUTSIDE_REPO`, `SOURCE_FILE_NOT_FOUND`, `ENV_MUTEX`, `JOB_VARIABLES_MUTEX`, `SCHEDULE_REQUIRED`. Os templates com interpolação `_INVALID_PARAM` e `_SCHEDULE_MUTEX` são expostos via factories `invalid_param(param, flow)` e `schedule_mutex()`.
+`ValidationMessages` contém todas as mensagens de erro lançadas como exceções: `TAGS_REQUIRED`, `REQUIREMENTS_PATH_INVALID`, `NAME_REQUIRED`, `OUTSIDE_GIT_REPO`, `NO_REMOTE_ORIGIN`, `ENTRYPOINT_OUTSIDE_REPO`, `SOURCE_FILE_NOT_FOUND`, `ENV_MUTEX`, `JOB_VARIABLES_MUTEX`, `SCHEDULE_REQUIRED`. Os templates com interpolação `_INVALID_PARAM` e `_SCHEDULE_MUTEX` são expostos via factories `invalid_param(param, flow)` e `schedule_mutex()`. O factory `acknowledge_invalid(ids, allowed)` cobre ids de ack desconhecidos (Seção 12.5).
+
+`NonInteractiveMessages` contém os textos do relatório de confirmações pendentes: cabeçalho do painel, texto introdutório, labels da tabela e os factories que montam a instrução literal de cada pendência — `ack_instruction(ack_id)` para os acks de código, `git_instruction(ids)` para o ack escopado de git e `mode_instruction()` para a flag de modo. É a única classe de mensagens que importa de `constants.py`, pois interpola os nomes de flags e env vars de `RBRNonInteractive` nas instruções; a hierarquia `constants` → `messages` permite isso.
 
 ---
 
 ### 3.4 `_cli/__init__.py`
 
-Expõe apenas as funções de alto nível de `ui.py`: `print_audit_panel`, `print_handoff`, `confirm_work_pool_override`, `confirm_concurrency_limit` e `confirm_advanced_schedule`. `messages.py` permanece invisível para fora do submódulo. `deploy.py` importa exclusivamente deste `__init__`, nunca diretamente de `ui.py` ou `messages.py`.
+Expõe apenas as funções de alto nível de `ui.py`: `print_audit_panel`, `print_handoff`, `confirm_work_pool_override`, `confirm_concurrency_limit`, `confirm_advanced_schedule`, `print_pending_acks_panel`, `print_git_check_skipped` e `print_git_issues_accepted`. `messages.py` permanece invisível para fora do submódulo. `deploy.py` importa exclusivamente deste `__init__`, nunca diretamente de `ui.py` ou `messages.py`.
 
 ---
 
@@ -184,11 +188,17 @@ Expõe apenas as funções de alto nível de `ui.py`: `print_audit_panel`, `prin
 
 `confirm_work_pool_override`, `confirm_concurrency_limit` e `confirm_advanced_schedule` exibem o aviso correspondente de `messages.py` e fazem a pergunta de confirmação via `rich.prompt.Confirm.ask`. Retornam `True` se confirmado, `False` se negado. Em caso negativo, exibem a mensagem de abort antes de retornar.
 
+As funções `confirm_*` nunca decidem se devem ser chamadas: essa decisão é de `BaseDeploy` (Seção 12.6). Elas assumem terminal interativo e não consultam `_interaction` — `ui.py` não conhece o conceito de modo. Isso mantém `ui.py` como camada puramente de apresentação e concentra a política em `deploy.py`.
+
+`print_pending_acks_panel` recebe as instruções já resolvidas como strings e as renderiza em um painel vermelho, uma por linha. Não monta texto: as instruções chegam de `NonInteractiveMessages`, preservando R2. `print_git_check_skipped` exibe `GitCheckMessages.SKIPPED` (Seção 12.9). `print_git_issues_accepted` exibe a nota de que as issues listadas foram aceitas na invocação, para que o output registre a autorização junto ao painel de issues.
+
 ---
 
 ### 3.6 Contrato de Sequência Terminal
 
 Toda interação do `rbr-prefect` com o terminal ocorre dentro de `.deploy()`, antes da chamada a `deployable.deploy()`. A ordem é estrita: validações síncronas via exceção → prompts de confirmação (`work_pool`, `concurrency_limit`, `advanced_schedule`, cada um apenas quando aplicável) → `print_audit_panel` → `print_handoff`. O terminal não é limpo em nenhum momento. Se qualquer prompt de confirmação retornar `False`, o deploy é abortado com `SystemExit(0)` — não uma exceção, pois o abort é uma decisão do usuário, não um erro.
+
+Cada prompt desta sequência só é exibido quando a intenção correspondente **não** foi declarada. Um ack declarado (Seção 12) suprime o prompt correspondente sem alterar a ordem dos demais, e a ausência de terminal converte o prompt em pendência reportada — nunca em prompt executado. A sequência acima permanece válida como a ordem em que as decisões são avaliadas, independentemente de cada uma resultar em prompt, em passagem silenciosa ou em pendência.
 
 ---
 
@@ -252,9 +262,9 @@ O git pre-flight check é uma etapa de verificação executada no início de `Ba
 
 A verificação só é executada quando a `source_strategy` da instância é `GitHubSourceStrategy`. `DockerSourceStrategy` não executa checks de git — a etapa é completamente ignorada nesse caso, sem nenhum output adicional.
 
-A verificação é bypassada quando a variável de ambiente `RBR_SKIP_GIT_CHECK` estiver definida com qualquer valor não-vazio. Quando o bypass está ativo, o painel verde de sucesso ainda é exibido (para preservar a consistência visual do output), mas os checks de subprocess não são executados e `run_git_checks()` não é chamado.
+A verificação é bypassada quando a variável de ambiente `RBR_SKIP_GIT_CHECK` estiver definida com qualquer valor não-vazio. Quando o bypass está ativo, os checks de subprocess não são executados e `run_git_checks()` não é chamado; é exibida a mensagem `GitCheckMessages.SKIPPED`. Esta env var está **depreciada** em favor do ack escopado — ver Seção 12.9 para o motivo e para o comportamento anterior que foi corrigido.
 
-O método `run_git_checks()` de `GitHubSourceStrategy` executa exatamente 5 checks em sequência. Todos os checks são sempre executados, mesmo que os anteriores tenham encontrado issues — não há short-circuit. O método retorna uma lista de objetos `GitCheckIssue`, cada um com campos `check` (label da verificação, constante de `GitCheckMessages`) e `details` (descrição legível do problema encontrado). Lista vazia significa que tudo está ok.
+O método `run_git_checks()` de `GitHubSourceStrategy` executa exatamente 5 checks em sequência. Todos os checks são sempre executados, mesmo que os anteriores tenham encontrado issues — não há short-circuit. O método retorna uma lista de objetos `GitCheckIssue`, cada um com campos `id` (identificador estável de máquina, constante de `RBRGitChecks`), `check` (label da verificação, constante de `GitCheckMessages`) e `details` (descrição legível do problema encontrado). Lista vazia significa que tudo está ok. A separação entre `id` e `check` é o que permite o ack escopado da Seção 12.2 — ver Seção 12.3.
 
 Os 5 checks são: (1) dirty check no repositório principal via `git status --porcelain`; (2) dirty check nos submódulos via `git submodule foreach`; (3) commits não pushed no repositório principal via `git log origin/{branch}..HEAD --oneline`; (4) commits não pushed nos submódulos via `git submodule foreach` com `git log`; (5) verificação de que o SHA pinado de cada submódulo é alcançável a partir de alguma ref remota via `git branch -r --contains {sha}`.
 
@@ -263,6 +273,8 @@ Os checks de submódulos (2, 4 e 5) são silenciosamente omitidos quando o repos
 Falhas de subprocess inesperadas são capturadas como issues do tipo `CHECK_SUBPROCESS_ERROR` e nunca propagadas como exceções. Todos os subprocessos são chamados com `check=False`; quando `returncode != 0`, o stderr é capturado como `details` da issue. Isso garante que o deploy pode prosseguir (com confirmação do usuário) mesmo que algum check não possa ser executado por razões externas.
 
 O resultado da verificação determina o fluxo: lista vazia exibe um painel verde com mensagem de sucesso e o deploy prossegue automaticamente; lista não-vazia exibe um painel vermelho com uma tabela contendo todas as issues encontradas e um prompt de confirmação ao dev. Se o dev negar o prompt, o deploy é abortado com `SystemExit(0)` — não uma exceção, pois é uma decisão do usuário, não um erro do programa.
+
+Com issues encontradas, o prompt só é exibido se os ids das issues não tiverem sido aceitos na invocação. Quando **todos** os ids presentes constam em `_interaction.accepted_git_issues()`, o painel vermelho ainda é exibido — o dev e o agente precisam ver o estado do repositório de qualquer forma — mas nenhuma confirmação é pedida e o deploy prossegue. Quando resta qualquer id não aceito, o comportamento é o da Seção 12: prompt se houver terminal, pendência reportada se não houver. A cobertura é avaliada por id, não por quantidade: aceitar `dirty_main` não autoriza um `unpushed_main` que apareça na mesma execução.
 
 ---
 
@@ -288,17 +300,21 @@ Os parâmetros de source são `source_strategy: BaseSourceStrategy | None = None
 
 O parâmetro `requirements_source: Path | str | None = None` controla a detecção de dependências Python. Quando `None`, tentativa de detecção automática via `find_requirements(Path.cwd())` do `requirements_detector`. Quando fornecido como `str`, converter para `Path`. Quando fornecido como `Path`, usar `from_requirements_txt(path)` diretamente. Se o path fornecido não existir, lançar `ValueError` com `ValidationMessages.REQUIREMENTS_PATH_INVALID`.
 
-Os parâmetros de infraestrutura são `image: str = RBRDocker.DEFAULT_IMAGE` e `work_pool_name: str = RBRWorkPools.DEFAULT`. Override de `work_pool_name` exige confirmação interativa no `__init__`.
+Os parâmetros de infraestrutura são `image: str = RBRDocker.DEFAULT_IMAGE` e `work_pool_name: str = RBRWorkPools.DEFAULT`. Override de `work_pool_name` exige confirmação no `__init__` — via prompt interativo ou via ack declarado (Seção 12.5).
+
+`acknowledge: list[str] | None = None` declara no código quais confirmações de intenção de configuração já estão autorizadas, dispensando o prompt correspondente. Ids aceitos são os de `RBRAcknowledgements`; ids desconhecidos lançam `ValueError`. Ver Seção 12.5.
 
 Os parâmetros de customização de `job_variables` são `extra_job_variables: dict[str, Any] | None = None` e `job_variables_override: dict[str, Any] | None = None`. São mutuamente exclusivos — fornecer ambos lança `ValueError` com `ValidationMessages.JOB_VARIABLES_MUTEX`. O mesmo padrão se aplica ao env: `extra_env: dict[str, str] | None = None` e `env_override: dict[str, str] | None = None` são mutuamente exclusivos via `ValidationMessages.ENV_MUTEX`.
 
-`concurrency_limit: int | None = None` quando fornecido exige confirmação interativa no `__init__`.
+`concurrency_limit: int | None = None` quando fornecido exige confirmação no `__init__` — via prompt interativo ou via ack declarado (Seção 12.5).
 
 ---
 
 ### 5.4 Sequência de Inicialização
 
-A ordem de operações no `__init__` é estrita e deve ser preservada: (1) validar tags, (2) validar mutex de `job_variables`, (3) validar mutex de `env`, (4) prompt de confirmação para `work_pool_name` não-padrão, (5) prompt de confirmação para `concurrency_limit` fornecido, (6) instanciar `source_strategy`, (7) resolver `_entrypoint`, (8) extrair parâmetros default via `inspect.signature`, (9) armazenar todos os atributos. Os prompts ocorrem na construção — não no `.deploy()` — para que o dev veja os avisos antes de qualquer processamento adicional.
+A ordem de operações no `__init__` é estrita e deve ser preservada: (1) validar tags, (2) validar mutex de `job_variables`, (3) validar mutex de `env`, (3b) validar `dependency_mode`, (3c) validar e armazenar `acknowledge`, (4) confirmação para `work_pool_name` não-padrão, (5) confirmação para `concurrency_limit` fornecido, (5b) reportar pendências acumuladas de (4) e (5), (6) instanciar `source_strategy`, (7) resolver `_entrypoint`, (8) extrair parâmetros default via `inspect.signature`, (9) armazenar todos os atributos. Os prompts ocorrem na construção — não no `.deploy()` — para que o dev veja os avisos antes de qualquer processamento adicional.
+
+O passo (3c) precede necessariamente (4) e (5), pois `_resolve_config_ack` consulta `self._acknowledge`. O passo (5b) existe para que as duas confirmações de configuração visíveis no `__init__` sejam reportadas em uma única execução quando ambas estiverem pendentes — sem ele, um agente descobriria uma pendência por execução. `advanced_schedule` não participa deste acúmulo: é avaliado em `.schedule()`, que é uma chamada posterior e separada, e reporta sua própria pendência.
 
 `_extract_default_parameters(flow_func)` usa `_get_underlying_function` antes de chamar `inspect.signature`, e retorna apenas parâmetros que possuem valor default (ignora `inspect.Parameter.empty`). O resultado é o valor inicial de `self._parameters`.
 
@@ -537,3 +553,116 @@ O critério de aceite para v0.1.0 é a execução bem-sucedida do script `tests/
 ### 11.2 Estrutura de Testes
 
 Os testes automatizados em `tests/` cobrem validações síncronas do `__init__` (tags vazias, mutex de env/job_variables, parâmetros inválidos), a resolução de requirements com e sem `requirements_source`, a resolução de `job_variables` e `env` nas três camadas de merge, e a integração do `cron.py` com `BaseDeploy.schedule()`. Testes de integração contra o servidor Prefect real são manuais via os scripts em `tests/simple-flow-source-gh/`.
+---
+
+## Seção 12 — Modo Não-Interativo e Acknowledgements
+
+### 12.1 Motivação e Princípio
+
+Os prompts de confirmação do pacote são um recurso deliberado: o `rbr-prefect` acompanha o dev passo a passo e pergunta antes de aceitar uma configuração incomum ou um estado de repositório arriscado. O problema é que um prompt só pode ser respondido por quem está em um terminal interativo — o que impede o uso do pacote por agentes de IA e por qualquer automação (CI, cron, pipeline).
+
+A solução **não** é uma flag global que aprova tudo. O prompt não é um obstáculo a ser removido: ele é o *fallback* para quando a intenção não foi declarada. Declarar a intenção é o que dispensa a pergunta.
+
+O princípio que governa toda esta seção é uma regra única, aplicada a cada decisão individualmente:
+
+> **Se a intenção está declarada, roda. Se não está, pergunta. Se não pode perguntar, falha dizendo exatamente o que declarar.**
+
+Isso preserva integralmente a experiência do dev humano — quem não declara nada continua sendo acompanhado prompt a prompt, como antes — e ao mesmo tempo torna o deploy executável de forma autônoma, sem nunca inferir uma autorização que ninguém deu.
+
+### 12.2 Dois Tipos de Decisão, Dois Lugares de Declaração
+
+As confirmações do pacote não são todas da mesma natureza, e por isso não se declaram no mesmo lugar.
+
+**Intenção de configuração** — `work_pool_override`, `concurrency_limit` e `advanced_schedule`. São decisões sobre o *conteúdo do deploy*, permanentes por natureza: se o flow precisa de `concurrency_limit=1`, precisa em toda execução do script. A declaração é permanente e mora **no código**, no parâmetro `acknowledge` do construtor, ao lado do parâmetro que ela justifica. Fica no diff, é revisável em code review, e persiste junto com a configuração que autoriza.
+
+**Estado do mundo** — as issues do git pre-flight check. Não são uma decisão sobre o deploy; são um fato sobre o repositório no instante da execução, e mudam a cada deploy. A declaração é efêmera e mora **na invocação** (flag de `sys.argv` ou variável de ambiente), nunca no código. A razão é concreta: um ack de estado commitado no script desligaria a verificação permanentemente para todos os deploys futuros daquele flow — exatamente o oposto do que a verificação existe para fazer.
+
+O ack de estado é ainda **escopado por id**: quem aceita precisa nomear quais issues aceitou. Se um check de outra classe passar a falhar, o deploy falha mesmo com o ack presente, porque essa issue não foi vista por ninguém. Esta é a diferença essencial em relação a um bypass: `RBR_SKIP_GIT_CHECK` não roda os checks; o ack escopado roda todos e exige que o resultado seja nomeado.
+
+A confirmação final (`confirm_deploy`) não recebe ack próprio. Ela não carrega informação nova — apenas oferece um momento de revisão dos painéis já impressos. A própria declaração de modo não-interativo é o que a dispensa.
+
+### 12.3 Constantes
+
+Três classes de dados puros em `constants.py` sustentam o modelo. Nenhuma contém lógica.
+
+`RBRAcknowledgements` define os ids dos acks de intenção de configuração: `WORK_POOL_OVERRIDE = "work_pool_override"`, `CONCURRENCY_LIMIT = "concurrency_limit"`, `ADVANCED_SCHEDULE = "advanced_schedule"`, e a tupla `ALL` com os três. São valores públicos — o dev os digita no parâmetro `acknowledge`, seja como string literal ou via a constante.
+
+`RBRGitChecks` define os ids estáveis dos checks do git pre-flight: `DIRTY_MAIN`, `DIRTY_SUBMODULES`, `UNPUSHED_MAIN`, `UNPUSHED_SUBMODULES`, `SUBMODULE_PINS`, `SUBPROCESS_ERROR`, e a tupla `ALL`. A separação em relação a `GitCheckMessages` é deliberada e segue R1/R2: o **id** é um identificador de máquina, parte do contrato de invocação, e mora em `constants.py`; o **label** é texto exibido ao dev, em português, e mora em `messages.py`. Cada `GitCheckIssue` carrega os dois.
+
+`RBRNonInteractive` define o contrato de invocação: `FLAG_NON_INTERACTIVE = "--rbr-non-interactive"`, `FLAG_ACCEPT_GIT_ISSUES = "--rbr-accept-git-issues"`, `ENV_NON_INTERACTIVE = "RBR_PREFECT_NON_INTERACTIVE"`, `ENV_ACCEPT_GIT_ISSUES = "RBR_PREFECT_ACCEPT_GIT_ISSUES"`, o prefixo `FLAG_PREFIX = "--rbr-"`, o separador `ID_SEPARATOR = ","` e `EXIT_CODE = 2`.
+
+### 12.4 `_interaction.py` — Resolução do Modo
+
+Um novo módulo privado `rbr_prefect/_interaction.py` resolve o modo de interação e os acks de invocação. Depende exclusivamente de `constants.py`, não importa nada de `_cli` e não contém nenhuma decisão de fluxo — apenas responde perguntas. A hierarquia de dependências do pacote passa a ser: `constants` → `messages` → `ui` → `deploy`, com `_interaction` dependendo apenas de `constants` e sendo consumido por `deploy`.
+
+O módulo lê `sys.argv` e `os.environ`; ambas são leituras, portanto não violam R3.
+
+`non_interactive_declared()` retorna `True` quando a flag `--rbr-non-interactive` está presente em `sys.argv` ou quando a env var correspondente está definida com valor não-vazio.
+
+`can_prompt()` retorna `True` apenas quando `sys.stdin.isatty()` e o modo não-interativo **não** foi declarado. É a única função consultada por `deploy.py` para decidir entre tentar perguntar e reportar.
+
+`can_prompt()` é uma heurística, não uma garantia — ver Seção 12.4.1.
+
+### 12.4.1 `isatty()` Não é Suficiente — o Backstop de `EOFError`
+
+`sys.stdin.isatty()` mente em ambientes reais dos devs da RBR. Verificado em Windows com Git Bash e o stdin redirecionado (`python script.py < /dev/null`): `isatty()` retorna `True`, o prompt é impresso, e a leitura estoura `EOFError`. O mesmo padrão aparece em alguns runners de CI.
+
+Se o pacote confiasse apenas em `isatty()`, o ambiente de um agente rodando exatamente esse shell voltaria a quebrar com traceback — o problema que esta seção inteira existe para resolver.
+
+Por isso `deploy.py` nunca chama uma função `confirm_*` diretamente. Toda pergunta passa por `_ask(prompt_fn)`, que retorna `True`/`False` conforme a resposta e `None` quando a pergunta não pôde ser feita — seja porque `can_prompt()` já era falso, seja porque a leitura estourou `EOFError`. Um `EOFError` leva exatamente à mesma conclusão da ausência de terminal: reportar a pendência.
+
+O teste autoritativo de "posso perguntar?" é a leitura funcionar ou não. `can_prompt()` serve para evitar imprimir um prompt que já se sabe inútil; `_ask` garante a correção quando `can_prompt()` errou. Ambos são necessários: sem o primeiro, todo deploy autônomo imprimiria prompts órfãos; sem o segundo, o pacote quebraria nos ambientes onde `isatty()` mente.
+
+Consequência visual aceita: quando `isatty()` mente, a linha do prompt aparece no output antes do relatório de pendências. É ruído inevitável — o pacote não pode saber que a leitura falharia antes de tentar.
+
+`accepted_git_issues()` retorna o conjunto de ids aceitos na invocação. `sys.argv` tem precedência sobre a env var — quando a flag está presente, a env var é integralmente ignorada, sem união entre as fontes.
+
+A leitura de `sys.argv` é deliberadamente tolerante: o módulo procura apenas argumentos com o prefixo `--rbr-`, aceita as formas `--flag=valor` e `--flag valor`, e nunca valida, consome ou reclama do restante do `argv`. Isso permite que um script de deploy tenha seu próprio `argparse` sem colisão. O prefixo `--rbr-` não é cosmético: é o que garante essa convivência.
+
+O motivo de a flag de `argv` ser o caminho primário e a env var apenas fallback é ambiental. Os devs da RBR rodam em Windows/PowerShell, onde não existe prefixo inline de variável de ambiente (`VAR=x cmd` é bashismo). Via env var, o ack seria definido com `$env:RBR_PREFECT_ACCEPT_GIT_ISSUES = "..."` e **persistiria pelo resto da sessão do shell**, vazando silenciosamente para todos os deploys seguintes — precisamente o vazamento de escopo que o ack escopado existe para evitar. A flag de `argv` é efêmera por construção.
+
+### 12.5 Parâmetro `acknowledge`
+
+`BaseDeploy.__init__` e as quatro subclasses públicas recebem `acknowledge: list[str] | None = None`. `None` e lista vazia são equivalentes: nenhuma intenção declarada.
+
+Ids desconhecidos lançam `ValueError` com `ValidationMessages.acknowledge_invalid(...)`, listando os valores aceitos. Isto é intencional e não é um detalhe: o `acknowledge` existe para capturar erro de digitação e alucinação de agente, e um id silenciosamente ignorado destruiria essa propriedade. Ids repetidos são aceitos sem erro (normalizados para conjunto).
+
+Declarar um ack que não é necessário — por exemplo `acknowledge=["concurrency_limit"]` sem passar `concurrency_limit` — não é erro. O ack autoriza uma confirmação; se ela não é acionada, nada acontece.
+
+### 12.6 Resolução de uma Confirmação de Configuração
+
+`BaseDeploy._resolve_config_ack(ack_id, prompt_fn)` concentra a regra da Seção 12.1 para os três acks de configuração. Retorna uma lista: vazia quando a confirmação está autorizada, ou `[ack_id]` quando está pendente.
+
+A ordem de avaliação é estrita. Primeiro, se `ack_id` está em `self._acknowledge`, retorna lista vazia sem imprimir nada — a intenção está declarada, não há o que perguntar. Senão, chama `_ask(prompt_fn)` (Seção 12.4.1): `True` retorna lista vazia; `False` aborta com `SystemExit(0)` (decisão do usuário, comportamento idêntico ao anterior); `None` — não foi possível perguntar — retorna `[ack_id]` como pendente, sem abortar. O chamador acumula as pendências e reporta todas de uma vez.
+
+`self._acknowledge` precisa estar populado antes da primeira chamada, o que fixa sua posição na sequência de inicialização (Seção 5.4).
+
+### 12.7 Relatório de Pendências e Códigos de Saída
+
+Quando há pendências, `_abort_pending(ack_ids, git_issue_ids)` imprime o painel de confirmações pendentes e encerra com `SystemExit(RBRNonInteractive.EXIT_CODE)`.
+
+O código de saída `2` é deliberadamente diferente do `SystemExit(0)` usado nos aborts por negação de prompt, e a distinção é semântica: `0` significa que uma pessoa viu a pergunta e respondeu não — o programa fez seu trabalho. `2` significa que o programa se recusou a prosseguir porque uma autorização necessária não existe. Um agente precisa distinguir os dois casos: no primeiro não há nada a corrigir, no segundo há uma ação concreta.
+
+O painel lista uma linha por pendência, cada uma com a instrução literal de como declará-la — o texto exato a acrescentar no construtor ou na linha de comando. Quando o modo não-interativo não foi declarado explicitamente, a instrução do modo é incluída como pendência também, de forma que uma única execução entrega ao agente todas as declarações que faltam em vez de uma por vez.
+
+O relatório é o mecanismo que faz o agente ler o estado do repositório — não por obrigação artificial, mas porque é o único caminho para o exit 0. Nenhum handshake de token é usado: seria contornável com um pipe e não garantiria compreensão. O que o modelo garante é **especificidade e rastreabilidade**, não compreensão.
+
+### 12.8 Ausência de Terminal Sem Declaração de Modo
+
+Quando não é possível perguntar (sem `isatty()`, ou com `EOFError` na leitura — Seção 12.4.1) e sem declaração explícita de modo não-interativo, o pacote não prossegue. Ele falha com o relatório de pendências, incluindo a instrução da flag de modo.
+
+A impossibilidade de perguntar serve para **não travar nem quebrar**, nunca para autorizar. Se ela sozinha habilitasse o modo autônomo, qualquer contexto sem TTY — CI, cron, saída redirecionada — passaria a pular a revisão final silenciosamente, que é exatamente o comportamento de uma flag global concedida por acidente. O modo autônomo é sempre declarado, nunca inferido.
+
+Consequência prática: em modo não-interativo declarado, `confirm_deploy` não é chamado; os painéis de auditoria, requirements, avisos de execução e env são impressos normalmente e o deploy prossegue. O output permanece integralmente legível — é o relatório que o agente consome.
+
+### 12.9 `RBR_SKIP_GIT_CHECK` — Depreciado
+
+A env var `RBR_SKIP_GIT_CHECK` (Seção 4.5) continua funcional por compatibilidade, mas está depreciada em favor do ack escopado, que é estritamente superior: roda os cinco checks e exige que o resultado seja nomeado, em vez de não rodar nada.
+
+O comportamento anterior de exibir o painel verde de sucesso quando o bypass está ativo é corrigido. Aquele painel afirma "Repositório limpo — código sincronizado com o remote", uma afirmação que o pacote não verificou. Para um humano é ruído; para um agente que lê o stdout é desinformação direta. Passa a ser exibido `GitCheckMessages.SKIPPED`, constante que já existia em `messages.py` sem uso.
+
+### 12.10 Compatibilidade
+
+Nenhum script de deploy existente quebra. Quem roda em terminal e não declara nada recebe exatamente os mesmos prompts, na mesma ordem, com o mesmo texto. O parâmetro `acknowledge` é opcional com default `None`, e as flags de invocação são opcionais.
+
+O único comportamento alterado para um script existente é o do bypass de git check (Seção 12.9), que passa a exibir uma mensagem honesta em vez do painel verde — correção de bug, não breaking change.

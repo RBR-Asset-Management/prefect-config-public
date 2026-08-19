@@ -61,6 +61,8 @@ deploy.deploy()
 
 ## Documentação
 
+- [Deploy não-interativo (agentes de IA e automação)](docs/deploy-nao-interativo.md)
+  — como rodar o deploy de forma autônoma sem perder as proteções dos prompts.
 - [Deploy em worker process (`ProcessDeploy`)](docs/deploy-process.md) — como
   rodar flows direto no worker, sem Docker.
 - [Migração para auto-install de dependências (1.0.0)](docs/migracao-auto-install.md)

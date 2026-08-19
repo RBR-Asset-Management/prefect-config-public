@@ -6,8 +6,54 @@ from unittest.mock import MagicMock, patch
 # third-party
 import pytest
 
+# internal
+from rbr_prefect import _interaction
+from rbr_prefect._cli.messages import GitCheckMessages
+from rbr_prefect.constants import RBRNonInteractive
+
 FAKE_GITHUB_URL = "https://github.com/some-org/some-repo.git"
 FAKE_BRANCH = "main"
+
+
+@pytest.fixture(autouse=True)
+def interactive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Ambiente default de todos os testes: terminal interativo, nada declarado.
+
+    Espelha o ambiente do dev humano, que e o caminho default do pacote — e o que
+    a grande maioria dos testes exercita. Os testes do modo nao-interativo
+    declaram explicitamente o contrario, do mesmo jeito que a invocacao real
+    precisa declarar.
+
+    Sem esta fixture os testes rodariam sem TTY (pytest nao tem terminal ligado
+    ao stdin) e nenhum prompt seria alcancado.
+
+    Tambem neutraliza as env vars e o argv do pacote, para que a sessao de shell
+    de quem roda os testes nao vaze para dentro deles — precisamente o vazamento
+    de escopo que motivou a flag de argv a ser o caminho primario.
+    """
+    monkeypatch.delenv(RBRNonInteractive.ENV_NON_INTERACTIVE, raising=False)
+    monkeypatch.delenv(RBRNonInteractive.ENV_ACCEPT_GIT_ISSUES, raising=False)
+    monkeypatch.delenv(GitCheckMessages.BYPASS_ENV_VAR, raising=False)
+    monkeypatch.setattr(_interaction, "_argv", lambda: [])
+    monkeypatch.setattr(_interaction, "stdin_is_tty", lambda: True)
+
+
+@pytest.fixture
+def no_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove o terminal interativo, sem declarar o modo nao-interativo."""
+    monkeypatch.setattr(_interaction, "stdin_is_tty", lambda: False)
+
+
+@pytest.fixture
+def non_interactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ausencia de terminal com o modo nao-interativo declarado via flag."""
+    monkeypatch.setattr(_interaction, "stdin_is_tty", lambda: False)
+    monkeypatch.setattr(
+        _interaction,
+        "_argv",
+        lambda: [RBRNonInteractive.FLAG_NON_INTERACTIVE],
+    )
 
 
 @pytest.fixture

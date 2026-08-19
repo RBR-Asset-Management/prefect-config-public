@@ -44,6 +44,7 @@ rbr-prefect/
 │   ├── __init__.py          # superficie publica - DefaultDeploy, ScrapeDeploy, __version__
 │   ├── constants.py         # unica fonte de valores literais de infraestrutura
 │   ├── deploy.py            # toda logica de deploy - BaseDeploy, subclasses, strategies
+│   ├── _interaction.py      # modo de interacao e acks de invocacao (Secao 12)
 │   └── _cli/
 │       ├── __init__.py      # expoe apenas funcoes de alto nivel de ui.py
 │       ├── messages.py      # unica fonte de textos exibidos ao dev
@@ -160,7 +161,9 @@ from rbr_prefect.constants import RBRBlocks, RBRDocker
 from rbr_prefect._cli import print_audit_panel
 ```
 
-Nunca use imports circulares. A hierarquia de dependências é: `constants` → `messages` → `ui` → `deploy`.
+Nunca use imports circulares. A hierarquia de dependências é: `constants` → `messages` → `ui` → `deploy`, com `_interaction` dependendo apenas de `constants` e consumido por `deploy`.
+
+`messages.py` importa de `constants.py` apenas para interpolar nomes de flags e env vars nas instruções de `NonInteractiveMessages` — o dev precisa ler o texto exato que deve digitar, e duplicar esses nomes os deixaria dessincronizados do contrato real.
 
 ### Type hints
 
@@ -207,6 +210,9 @@ Nunca importe de `typing` `List` com L maiúsculo ou `Dict` com D maiúsculo. Ut
 
 - A ordem de operações no `__init__` definida na Seção 5.4 do `REQUIREMENTS.md` é estrita. Não reordene as etapas.
 - Os prompts de confirmação (`confirm_work_pool_override`, `confirm_concurrency_limit`) ocorrem no `__init__`, não no `.deploy()`. O aborto via `SystemExit(0)` também ocorre no `__init__`.
+- **Nunca chame uma função `confirm_*` diretamente.** Toda pergunta passa por `_ask(prompt_fn)`, que devolve `None` quando não foi possível perguntar. Chamar o prompt direto reintroduz o `EOFError` nos ambientes onde `sys.stdin.isatty()` mente (Windows/Git Bash com stdin redirecionado, alguns runners de CI). Ver Seção 12.4.1 do `REQUIREMENTS.md`.
+- As três confirmações de configuração passam por `_resolve_config_ack`, que aplica a regra única do pacote: intenção declarada roda, não declarada pergunta, impossível de perguntar vira pendência. Não replique essa lógica nos pontos de chamada.
+- `acknowledge` é validado no passo (3c) do `__init__`, obrigatoriamente antes dos passos (4) e (5) que o consultam. Ids desconhecidos lançam `ValueError` — nunca são ignorados em silêncio, pois é isso que faz o parâmetro capturar erro de digitação.
 - `_resolve_job_variables()` deve sempre injetar o `env` por último via `_resolve_env()`, mesmo que `extra_job_variables` contenha a chave `env`. Isso previne que o dev sobrescreva acidentalmente o env base RBR via `extra_job_variables`.
 - `_build_description()` depende de `importlib.metadata.version("rbr-prefect")` — nos testes, esta chamada deve ser mockada.
 - O parâmetro `name` de `.deploy(name=...)` é um override opcional para aquela chamada específica — não modifica `self._name`.
@@ -278,6 +284,25 @@ if not confirmed:
     raise SystemExit(0)
 ```
 
+### Confundir `SystemExit(0)` com `SystemExit(2)`
+
+São dois casos semanticamente distintos e a diferença é consumida por automação. `0` significa que uma pessoa viu a pergunta e respondeu não — o programa fez seu trabalho e não há nada a corrigir. `RBRNonInteractive.EXIT_CODE` (2) significa que o programa se recusou a prosseguir porque falta uma declaração, e há uma ação concreta a tomar. Nunca use `0` para falta de autorização nem `2` para negação de prompt.
+
+### Prompt chamado diretamente
+
+```python
+# ERRADO — estoura EOFError onde isatty() mente
+if not confirm_concurrency_limit():
+    raise SystemExit(0)
+
+# CORRETO — _ask devolve None quando nao foi possivel perguntar
+answer = _ask(confirm_concurrency_limit)
+if answer is None:
+    ...  # pendencia
+elif not answer:
+    raise SystemExit(0)
+```
+
 ---
 
 ## Fluxo de Verificação Antes de Concluir uma Tarefa
@@ -292,5 +317,8 @@ Antes de marcar qualquer tarefa como concluída, execute mentalmente este checkl
 - [ ] Type hints em todos os métodos públicos
 - [ ] Erros lançados com mensagens de `ValidationMessages`
 - [ ] `SystemExit(0)` (não exceção) para abortos por decisão do usuário
+- [ ] `SystemExit(RBRNonInteractive.EXIT_CODE)` para falta de declaração, nunca `0`
+- [ ] Nenhuma função `confirm_*` chamada fora de `_ask()`
+- [ ] Novo parâmetro público propagado às quatro subclasses (`DefaultDeploy`, `SQLDeploy`, `ScrapeDeploy`, `ProcessDeploy`)
 - [ ] `__all__` em `__init__.py` atualizado se novos nomes públicos foram adicionados
 - [ ] Nenhuma regressão nos contratos documentados em `.instructions/TESTING_EXTENSIVE.md`

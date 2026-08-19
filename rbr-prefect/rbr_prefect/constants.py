@@ -143,6 +143,86 @@ class RBRDependencyMode:
     REQUIRED_PACKAGE = "prefect"
 
 
+class RBRAcknowledgements:
+    """
+    Ids dos acks de intencao de configuracao, declarados no parametro
+    `acknowledge` das classes de deploy.
+
+    Cada id autoriza uma confirmacao especifica, dispensando o prompt
+    correspondente no terminal. Sao decisoes sobre o conteudo do deploy —
+    permanentes por natureza — e por isso a declaracao mora no codigo, ao lado
+    do parametro que ela justifica, onde fica visivel no diff e em code review.
+
+    Acks de estado do repositorio NAO ficam aqui: sao efemeros e se declaram na
+    invocacao (ver RBRNonInteractive e RBRGitChecks).
+    """
+
+    WORK_POOL_OVERRIDE = "work_pool_override"
+    CONCURRENCY_LIMIT = "concurrency_limit"
+    ADVANCED_SCHEDULE = "advanced_schedule"
+
+    ALL = (WORK_POOL_OVERRIDE, CONCURRENCY_LIMIT, ADVANCED_SCHEDULE)
+
+
+class RBRGitChecks:
+    """
+    Ids estaveis dos checks do git pre-flight.
+
+    Estes ids sao o vocabulario do ack escopado de estado: quem aceita uma issue
+    de git precisa nomea-la por id na invocacao. Sao identificadores de maquina
+    e parte do contrato de invocacao — os labels em portugues exibidos ao dev
+    vivem em GitCheckMessages. Cada GitCheckIssue carrega os dois.
+
+    Renomear qualquer valor aqui quebra acks existentes em uso.
+    """
+
+    DIRTY_MAIN = "dirty_main"
+    DIRTY_SUBMODULES = "dirty_submodules"
+    UNPUSHED_MAIN = "unpushed_main"
+    UNPUSHED_SUBMODULES = "unpushed_submodules"
+    SUBMODULE_PINS = "submodule_pins"
+    SUBPROCESS_ERROR = "subprocess_error"
+
+    ALL = (
+        DIRTY_MAIN,
+        DIRTY_SUBMODULES,
+        UNPUSHED_MAIN,
+        UNPUSHED_SUBMODULES,
+        SUBMODULE_PINS,
+        SUBPROCESS_ERROR,
+    )
+
+
+class RBRNonInteractive:
+    """
+    Contrato de invocacao do modo nao-interativo.
+
+    As flags de sys.argv sao o caminho primario e as env vars um fallback. O
+    motivo e ambiental: em PowerShell nao existe prefixo inline de variavel de
+    ambiente, entao uma env var definida para um deploy persiste pelo resto da
+    sessao do shell e vaza para os deploys seguintes. A flag e efemera por
+    construcao, que e o requisito de um ack de estado.
+
+    O prefixo --rbr- delimita o que o pacote le de sys.argv, permitindo que o
+    script de deploy tenha seu proprio argparse sem colisao.
+    """
+
+    FLAG_PREFIX = "--rbr-"
+
+    FLAG_NON_INTERACTIVE = "--rbr-non-interactive"
+    FLAG_ACCEPT_GIT_ISSUES = "--rbr-accept-git-issues"
+
+    ENV_NON_INTERACTIVE = "RBR_PREFECT_NON_INTERACTIVE"
+    ENV_ACCEPT_GIT_ISSUES = "RBR_PREFECT_ACCEPT_GIT_ISSUES"
+
+    ID_SEPARATOR = ","
+
+    # Codigo de saida quando o pacote se recusa a prosseguir por falta de
+    # autorizacao. Distinto do SystemExit(0) de negacao de prompt: 0 significa
+    # que uma pessoa respondeu nao, 2 significa que falta uma declaracao.
+    EXIT_CODE = 2
+
+
 class RBRDateTimeConvention:
     TIMEZONE = "America/Sao_Paulo"
     CRON_DESCRIPTOR_LOCALE = "pt_PT"

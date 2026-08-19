@@ -20,6 +20,7 @@ from rbr_prefect._cli.messages import (
     EnvMessages,
     GitCheckMessages,
     JobVariablesMessages,
+    NonInteractiveMessages,
     RequirementsMessages,
     ScheduleMessages,
     WorkPoolMessages,
@@ -265,6 +266,10 @@ def print_git_check_panel(issues: list) -> None:
     """
     Exibe o painel do git pre-flight check.
 
+    A coluna de id existe para que o dev e o agente vejam o identificador que
+    precisam nomear no ack escopado — sem ela, o relatorio de pendencias seria a
+    unica fonte dos ids.
+
     Parameters
     ----------
     issues : list
@@ -282,19 +287,88 @@ def print_git_check_panel(issues: list) -> None:
         return
 
     table = Table(show_header=True, box=None, padding=(0, 2))
-    table.add_column("Verificação", style="yellow")
-    table.add_column("Detalhe", style="white")
+    table.add_column(GitCheckMessages.COLUMN_ID, style="red")
+    table.add_column(GitCheckMessages.COLUMN_CHECK, style="yellow")
+    table.add_column(GitCheckMessages.COLUMN_DETAILS, style="white")
 
     for issue in issues:
         details = issue.details
         if len(details) > 120:
             details = details[:117] + "..."
-        table.add_row(issue.check, details)
+        table.add_row(issue.id, issue.check, details)
 
     _console.print(
         Panel(
             table,
             title=GitCheckMessages.PANEL_HEADER,
+            border_style="red",
+        )
+    )
+
+
+def print_git_check_skipped() -> None:
+    """
+    Exibe a mensagem de git check ignorado via RBR_SKIP_GIT_CHECK.
+
+    Substitui o painel verde de sucesso que era exibido antes neste caso. Aquele
+    painel afirmava que o repositorio estava limpo — uma afirmacao que o pacote
+    nao verificou. Para um agente que le o stdout, isso era desinformacao
+    direta.
+    """
+    _console.print(
+        Panel(
+            GitCheckMessages.SKIPPED,
+            title=GitCheckMessages.PANEL_HEADER,
+            border_style="yellow",
+        )
+    )
+
+
+def print_git_issues_accepted(ids: str) -> None:
+    """
+    Exibe a nota de que as issues de git listadas foram aceitas na invocacao.
+
+    Impressa logo apos o painel vermelho de issues, para que o output registre a
+    autorizacao ao lado do estado que ela autoriza.
+
+    Parameters
+    ----------
+    ids : str
+        Ids aceitos, ja formatados como texto pelo chamador.
+    """
+    _console.print(GitCheckMessages.issues_accepted(ids), style="yellow")
+
+
+def print_pending_acks_panel(instructions: list[tuple[str, str]]) -> None:
+    """
+    Exibe o relatorio de confirmacoes pendentes em modo nao-interativo.
+
+    Recebe as instrucoes ja resolvidas — esta funcao nao monta texto, apenas
+    formata. Cada linha da tabela e o texto literal que o dev ou o agente
+    precisa acrescentar para autorizar aquela confirmacao.
+
+    Parameters
+    ----------
+    instructions : list[tuple[str, str]]
+        Pares (label da pendencia, instrucao literal de como declara-la).
+    """
+    table = Table(show_header=True, box=None, padding=(0, 2))
+    table.add_column(NonInteractiveMessages.COLUMN_PENDING, style="yellow")
+    table.add_column(
+        NonInteractiveMessages.COLUMN_INSTRUCTION, style="white", overflow="fold"
+    )
+
+    for label, instruction in instructions:
+        table.add_row(label, instruction)
+
+    # O texto introdutorio vai acima do painel, nao como subtitle: rich trunca o
+    # subtitle na largura da borda, e este texto e a explicacao do que fazer.
+    _console.print()
+    _console.print(NonInteractiveMessages.INTRO, style="bold red")
+    _console.print(
+        Panel(
+            table,
+            title=f"[bold]{NonInteractiveMessages.PANEL_HEADER}[/bold]",
             border_style="red",
         )
     )

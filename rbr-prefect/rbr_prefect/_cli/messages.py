@@ -3,7 +3,14 @@ Constantes de texto e factories de mensagens para o terminal.
 
 Este arquivo é a fonte única da verdade para todos os textos exibidos ao dev.
 Nenhum texto literal deve aparecer em ui.py ou em outros arquivos de lógica.
+
+A única dependência interna permitida é constants.py, e apenas para interpolar
+nomes de flags e env vars nas instruções de NonInteractiveMessages — o dev
+precisa ler o texto exato que deve digitar, e duplicar esses nomes aqui os
+deixaria dessincronizados do contrato real.
 """
+
+from rbr_prefect.constants import RBRNonInteractive
 
 
 class DeployMessages:
@@ -129,7 +136,12 @@ class GitCheckMessages:
     SUCCESS = "Repositório limpo — código sincronizado com o remote."
     ISSUES_CONFIRM = "Foram encontrados problemas no repositório. Confirma o deploy mesmo assim?"
     ABORTED = "Deploy abortado pelo usuário."
-    SKIPPED = "Verificação Git ignorada via RBR_SKIP_GIT_CHECK."
+    SKIPPED = (
+        "Verificação Git ignorada via RBR_SKIP_GIT_CHECK — o estado do "
+        "repositório NÃO foi verificado. Esta variável está depreciada: prefira "
+        f"{RBRNonInteractive.FLAG_ACCEPT_GIT_ISSUES}, que roda os checks e exige "
+        "nomear as issues aceitas."
+    )
     BYPASS_ENV_VAR = "RBR_SKIP_GIT_CHECK"
 
     # Labels dos checks (usados como valor do campo GitCheckIssue.check)
@@ -139,6 +151,76 @@ class GitCheckMessages:
     CHECK_UNPUSHED_SUBMODULES = "Commits locais sem push (submódulos)"
     CHECK_SUBMODULE_PINS = "Commit pinado ausente no remote (submódulos)"
     CHECK_SUBPROCESS_ERROR = "Erro inesperado ao executar verificação Git"
+
+    # Coluna de id na tabela de issues — o dev precisa ver o id para poder
+    # nomeá-lo no ack escopado.
+    COLUMN_ID = "id"
+    COLUMN_CHECK = "Verificação"
+    COLUMN_DETAILS = "Detalhe"
+
+    _ISSUES_ACCEPTED = (
+        "Issues aceitas na invocação: {ids} — deploy prossegue sem confirmação."
+    )
+
+    @staticmethod
+    def issues_accepted(ids: str) -> str:
+        return GitCheckMessages._ISSUES_ACCEPTED.format(ids=ids)
+
+
+class NonInteractiveMessages:
+    """
+    Mensagens do relatório de confirmações pendentes em modo não-interativo.
+
+    Cada instrução é o texto literal que o dev ou o agente precisa acrescentar —
+    no construtor ou na linha de comando — para autorizar a confirmação
+    correspondente. Não são descrições do que fazer: são o que digitar.
+    """
+
+    PANEL_HEADER = "Confirmações pendentes"
+
+    INTRO = (
+        "Este deploy exige confirmações que não foram declaradas, e não há "
+        "terminal interativo para pedi-las. Declare cada item abaixo e execute "
+        "novamente."
+    )
+
+    COLUMN_PENDING = "Pendência"
+    COLUMN_INSTRUCTION = "Como declarar"
+
+    LABEL_MODE = "modo não-interativo"
+    LABEL_GIT_ISSUES = "issues de git não aceitas"
+
+    _ACK_INSTRUCTION = 'acknowledge=["{ack_id}"] no construtor do deploy'
+
+    _GIT_INSTRUCTION = "{flag}={ids}"
+
+    _MODE_INSTRUCTION = "{flag} na linha de comando"
+
+    _ENV_ALTERNATIVE = "(alternativa: {env}={value})"
+
+    @staticmethod
+    def ack_instruction(ack_id: str) -> str:
+        return NonInteractiveMessages._ACK_INSTRUCTION.format(ack_id=ack_id)
+
+    @staticmethod
+    def git_instruction(ids: str) -> str:
+        flag = NonInteractiveMessages._GIT_INSTRUCTION.format(
+            flag=RBRNonInteractive.FLAG_ACCEPT_GIT_ISSUES, ids=ids
+        )
+        env = NonInteractiveMessages._ENV_ALTERNATIVE.format(
+            env=RBRNonInteractive.ENV_ACCEPT_GIT_ISSUES, value=ids
+        )
+        return f"{flag}  {env}"
+
+    @staticmethod
+    def mode_instruction() -> str:
+        flag = NonInteractiveMessages._MODE_INSTRUCTION.format(
+            flag=RBRNonInteractive.FLAG_NON_INTERACTIVE
+        )
+        env = NonInteractiveMessages._ENV_ALTERNATIVE.format(
+            env=RBRNonInteractive.ENV_NON_INTERACTIVE, value="1"
+        )
+        return f"{flag}  {env}"
 
 
 class ProcessMessages:
@@ -217,6 +299,12 @@ class ValidationMessages:
     _DEPENDENCY_MODE_INVALID = (
         "dependency_mode invalido: '{mode}'. Valores aceitos: {allowed}."
     )
+    _ACKNOWLEDGE_INVALID = (
+        "Id de acknowledge invalido: {ids}. Valores aceitos: {allowed}. "
+        "Um id desconhecido nao e ignorado de proposito — o acknowledge existe "
+        "para capturar erro de digitacao, e aceitar um id invalido em silencio "
+        "faria o deploy prosseguir sem a autorizacao que o dev acreditou dar."
+    )
     _ATTACHMENT_INVALID_TYPE = (
         "Anexo #{index} tem tipo invalido: '{kind}'. Use um caminho (str ou Path), "
         "uma tupla (nome, bytes) ou um dict {{'name': str, 'content': str base64}}."
@@ -248,6 +336,12 @@ class ValidationMessages:
     def dependency_mode_invalid(mode: str, allowed: str) -> str:
         return ValidationMessages._DEPENDENCY_MODE_INVALID.format(
             mode=mode, allowed=allowed
+        )
+
+    @staticmethod
+    def acknowledge_invalid(ids: str, allowed: str) -> str:
+        return ValidationMessages._ACKNOWLEDGE_INVALID.format(
+            ids=ids, allowed=allowed
         )
 
     @staticmethod

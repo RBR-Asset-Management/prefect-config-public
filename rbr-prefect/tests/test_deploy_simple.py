@@ -626,8 +626,13 @@ class TestGitPreFlightCheck:
         """run_git_checks retorna issues — confirm_git_issues deve ser chamado; se True, prossegue."""
         from rbr_prefect.deploy import GitCheckIssue
         from rbr_prefect._cli.messages import GitCheckMessages
+        from rbr_prefect.constants import RBRGitChecks
 
-        fake_issue = GitCheckIssue(check=GitCheckMessages.CHECK_DIRTY_MAIN, details="M file.py")
+        fake_issue = GitCheckIssue(
+            id=RBRGitChecks.DIRTY_MAIN,
+            check=GitCheckMessages.CHECK_DIRTY_MAIN,
+            details="M file.py",
+        )
         deploy = self._make_deploy(flow_func)
         p1, p2 = self._patch_prefect_calls(flow_func)
 
@@ -651,8 +656,13 @@ class TestGitPreFlightCheck:
         """confirm_git_issues retorna False — deve levantar SystemExit(0)."""
         from rbr_prefect.deploy import GitCheckIssue
         from rbr_prefect._cli.messages import GitCheckMessages
+        from rbr_prefect.constants import RBRGitChecks
 
-        fake_issue = GitCheckIssue(check=GitCheckMessages.CHECK_DIRTY_MAIN, details="M file.py")
+        fake_issue = GitCheckIssue(
+            id=RBRGitChecks.DIRTY_MAIN,
+            check=GitCheckMessages.CHECK_DIRTY_MAIN,
+            details="M file.py",
+        )
         deploy = self._make_deploy(flow_func)
 
         with (
@@ -669,7 +679,14 @@ class TestGitPreFlightCheck:
         assert exc_info.value.code == 0
 
     def test_bypass_env_var_skips_checks(self, mock_git, mock_ui, flow_func, monkeypatch):
-        """Com RBR_SKIP_GIT_CHECK definido — run_git_checks NÃO deve ser chamado."""
+        """
+        Com RBR_SKIP_GIT_CHECK definido — run_git_checks NÃO deve ser chamado, e a
+        mensagem exibida deve ser a de "ignorado", nunca o painel verde de sucesso.
+
+        O painel verde afirma que o repositório está limpo. Sob bypass o pacote não
+        verificou nada, então exibi-lo era desinformação — inofensiva como ruído
+        para um humano, mas lida como fato por um agente que consome o stdout.
+        """
         from rbr_prefect._cli.messages import GitCheckMessages
 
         monkeypatch.setenv(GitCheckMessages.BYPASS_ENV_VAR, "1")
@@ -681,13 +698,15 @@ class TestGitPreFlightCheck:
                 "rbr_prefect.deploy.GitHubSourceStrategy.run_git_checks"
             ) as mock_checks,
             patch("rbr_prefect.deploy.print_git_check_panel") as mock_panel,
+            patch("rbr_prefect.deploy.print_git_check_skipped") as mock_skipped,
             p1,
             p2,
         ):
             deploy.deploy()
 
         mock_checks.assert_not_called()
-        mock_panel.assert_called_once_with([])
+        mock_panel.assert_not_called()
+        mock_skipped.assert_called_once()
 
     def test_docker_strategy_skips_checks(self, mock_git, mock_ui, flow_func):
         """DockerSourceStrategy — run_git_checks NÃO deve ser chamado."""

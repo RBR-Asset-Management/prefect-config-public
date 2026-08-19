@@ -14,7 +14,7 @@ import subprocess
 import tomllib
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, Generic, ParamSpec
+from typing import Any, Callable, Generic, NoReturn, ParamSpec
 
 from prefect.client.schemas.schedules import (
     CronSchedule,
@@ -24,6 +24,7 @@ from prefect.client.schemas.schedules import (
 from prefect.runner.storage import GitRepository
 from prefect_github import GitHubCredentials
 
+from rbr_prefect import _interaction
 from rbr_prefect._cli import (
     confirm_advanced_schedule,
     confirm_concurrency_limit,
@@ -33,22 +34,29 @@ from rbr_prefect._cli import (
     print_env_panel,
     print_execution_notices,
     print_git_check_panel,
+    print_git_check_skipped,
+    print_git_issues_accepted,
     confirm_deploy,
     print_handoff,
+    print_pending_acks_panel,
     print_requirements_panel,
 )
 from rbr_prefect._cli.messages import (
     DeployMessages,
     GitCheckMessages,
+    NonInteractiveMessages,
     ProcessMessages,
     RequirementsMessages,
     ValidationMessages,
 )
 from rbr_prefect.constants import (
+    RBRAcknowledgements,
     RBRBlocks,
     RBRDependencyMode,
     RBRDocker,
+    RBRGitChecks,
     RBRJobVariables,
+    RBRNonInteractive,
     RBRPrefectServer,
     RBRWorkPools,
     RBRDateTimeConvention,
@@ -92,8 +100,83 @@ def _requirement_name(spec: str) -> str:
 
 @dataclasses.dataclass
 class GitCheckIssue:
+    # Identificador estavel de maquina (usar constante de RBRGitChecks). E o
+    # vocabulario do ack escopado: quem aceita a issue a nomeia por este id.
+    id: str
     check: str  # nome do check que falhou (usar constante de messages.py)
     details: str  # descrição legível do problema encontrado
+
+
+def _ask(prompt_fn: Callable[[], bool]) -> bool | None:
+    """
+    Faz uma pergunta de confirmacao ao dev, se for possivel faze-la.
+
+    Returns
+    -------
+    bool | None
+        True/False conforme a resposta. None quando a pergunta nao pode ser
+        feita — nao ha terminal, o modo autonomo foi declarado, ou o stdin
+        acabou em EOF.
+
+    O teste de sys.stdin.isatty() nao e suficiente. Em Windows/Git Bash com o
+    stdin redirecionado, e em alguns runners de CI, ele reporta um terminal que
+    na pratica nao pode ser lido: a pergunta e impressa e a leitura estoura
+    EOFError. O teste autoritativo de "posso perguntar?" e a leitura funcionar
+    ou nao, e um EOF leva a mesma conclusao da ausencia de terminal — reportar
+    a pendencia em vez de derrubar o processo com traceback.
+    """
+    if not _interaction.can_prompt():
+        return None
+    try:
+        return prompt_fn()
+    except EOFError:
+        return None
+
+
+def _abort_pending(
+    ack_ids: list[str] | None = None,
+    git_issue_ids: list[str] | None = None,
+) -> NoReturn:
+    """
+    Reporta as confirmacoes pendentes e encerra sem executar o deploy.
+
+    Chamado quando nao ha terminal para perguntar e a intencao nao foi
+    declarada. O relatorio traz a instrucao literal de cada pendencia, de forma
+    que uma unica execucao entregue todas as declaracoes que faltam.
+
+    Encerra com RBRNonInteractive.EXIT_CODE (2), deliberadamente distinto do
+    SystemExit(0) de negacao de prompt: 0 significa que uma pessoa respondeu
+    nao e nao ha o que corrigir; 2 significa que falta uma autorizacao e ha uma
+    acao concreta a tomar.
+    """
+    instructions: list[tuple[str, str]] = []
+
+    # A instrucao de modo vem primeiro e so quando o modo nao foi declarado —
+    # sem ela o agente resolveria os acks e ainda travaria na revisao final.
+    if not _interaction.non_interactive_declared():
+        instructions.append(
+            (
+                NonInteractiveMessages.LABEL_MODE,
+                NonInteractiveMessages.mode_instruction(),
+            )
+        )
+
+    for ack_id in ack_ids or []:
+        instructions.append(
+            (ack_id, NonInteractiveMessages.ack_instruction(ack_id))
+        )
+
+    if git_issue_ids:
+        ids = RBRNonInteractive.ID_SEPARATOR.join(sorted(set(git_issue_ids)))
+        instructions.append(
+            (
+                NonInteractiveMessages.LABEL_GIT_ISSUES,
+                NonInteractiveMessages.git_instruction(ids),
+            )
+        )
+
+    print_pending_acks_panel(instructions)
+    raise SystemExit(RBRNonInteractive.EXIT_CODE)
 
 
 # =============================================================================
@@ -259,6 +342,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
         if result.returncode != 0:
             issues.append(
                 GitCheckIssue(
+                    id=RBRGitChecks.SUBPROCESS_ERROR,
                     check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
                     details=result.stderr,
                 )
@@ -266,6 +350,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
         elif result.stdout.strip():
             issues.append(
                 GitCheckIssue(
+                    id=RBRGitChecks.DIRTY_MAIN,
                     check=GitCheckMessages.CHECK_DIRTY_MAIN,
                     details=result.stdout.strip(),
                 )
@@ -302,6 +387,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
             if result.returncode != 0:
                 issues.append(
                     GitCheckIssue(
+                        id=RBRGitChecks.SUBPROCESS_ERROR,
                         check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
                         details=result.stderr,
                     )
@@ -309,6 +395,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
             elif result.stdout.strip():
                 issues.append(
                     GitCheckIssue(
+                        id=RBRGitChecks.DIRTY_SUBMODULES,
                         check=GitCheckMessages.CHECK_DIRTY_SUBMODULES,
                         details=result.stdout.strip(),
                     )
@@ -331,6 +418,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
         if result.returncode != 0:
             issues.append(
                 GitCheckIssue(
+                    id=RBRGitChecks.SUBPROCESS_ERROR,
                     check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
                     details=result.stderr,
                 )
@@ -338,6 +426,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
         elif result.stdout.strip():
             issues.append(
                 GitCheckIssue(
+                    id=RBRGitChecks.UNPUSHED_MAIN,
                     check=GitCheckMessages.CHECK_UNPUSHED_MAIN,
                     details=result.stdout.strip(),
                 )
@@ -363,6 +452,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
             if result.returncode != 0:
                 issues.append(
                     GitCheckIssue(
+                        id=RBRGitChecks.SUBPROCESS_ERROR,
                         check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
                         details=result.stderr,
                     )
@@ -370,6 +460,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
             elif result.stdout.strip():
                 issues.append(
                     GitCheckIssue(
+                        id=RBRGitChecks.UNPUSHED_SUBMODULES,
                         check=GitCheckMessages.CHECK_UNPUSHED_SUBMODULES,
                         details=result.stdout.strip(),
                     )
@@ -399,6 +490,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
                 if pin_result.returncode != 0:
                     issues.append(
                         GitCheckIssue(
+                            id=RBRGitChecks.SUBPROCESS_ERROR,
                             check=GitCheckMessages.CHECK_SUBPROCESS_ERROR,
                             details=pin_result.stderr,
                         )
@@ -411,6 +503,7 @@ class GitHubSourceStrategy(BaseSourceStrategy):
             if missing_pins:
                 issues.append(
                     GitCheckIssue(
+                        id=RBRGitChecks.SUBMODULE_PINS,
                         check=GitCheckMessages.CHECK_SUBMODULE_PINS,
                         details="\n".join(missing_pins),
                     )
@@ -641,6 +734,8 @@ class BaseDeploy(Generic[P]):
         env_override: dict[str, str] | None = None,
         # --- Concurrency (uso incomum) ---
         concurrency_limit: int | None = None,
+        # --- Confirmacoes de intencao declaradas no codigo ---
+        acknowledge: list[str] | None = None,
     ) -> None:
         # 1. Validar tags
         if not tags:
@@ -662,15 +757,32 @@ class BaseDeploy(Generic[P]):
                 )
             )
 
-        # 4. Prompt de confirmacao se work_pool nao for um pool RBR conhecido
-        if work_pool_name not in RBRWorkPools.KNOWN:
-            if not confirm_work_pool_override(work_pool_name):
-                raise SystemExit(0)
+        # 3c. Validar e armazenar acknowledge — precede (4) e (5), que o consultam
+        self._acknowledge = self._validate_acknowledge(acknowledge)
 
-        # 5. Prompt de confirmacao se concurrency_limit fornecido
+        # 4/5. Confirmacoes de intencao de configuracao. Cada uma e dispensada
+        # pelo ack declarado, perguntada quando ha terminal, ou acumulada como
+        # pendencia quando nao ha — nunca inferida.
+        pending: list[str] = []
+
+        # 4. Work pool que nao e um pool RBR conhecido
+        if work_pool_name not in RBRWorkPools.KNOWN:
+            pending += self._resolve_config_ack(
+                RBRAcknowledgements.WORK_POOL_OVERRIDE,
+                lambda: confirm_work_pool_override(work_pool_name),
+            )
+
+        # 5. Concurrency limit fornecido
         if concurrency_limit is not None:
-            if not confirm_concurrency_limit():
-                raise SystemExit(0)
+            pending += self._resolve_config_ack(
+                RBRAcknowledgements.CONCURRENCY_LIMIT,
+                confirm_concurrency_limit,
+            )
+
+        # 5b. Reportar as duas pendencias juntas — sem isto, um agente
+        # descobriria uma por execucao.
+        if pending:
+            _abort_pending(ack_ids=pending)
 
         # 6. Instanciar source_strategy
         if source_strategy is not None:
@@ -720,6 +832,62 @@ class BaseDeploy(Generic[P]):
         self._requirements_env: str | None = None
         self._requirements_resolved: bool = False
         self._requirements_detection_mode: str | None = None
+
+    def _validate_acknowledge(self, acknowledge: list[str] | None) -> set[str]:
+        """
+        Valida os ids de acknowledge e retorna o conjunto normalizado.
+
+        Ids desconhecidos lancam ValueError em vez de serem ignorados. O
+        acknowledge existe para capturar erro de digitacao e alucinacao de
+        agente; aceitar um id invalido em silencio destruiria essa propriedade —
+        o deploy prosseguiria sem a autorizacao que o dev acreditou ter dado.
+        """
+        if not acknowledge:
+            return set()
+
+        declared = set(acknowledge)
+        invalid = declared - set(RBRAcknowledgements.ALL)
+        if invalid:
+            raise ValueError(
+                ValidationMessages.acknowledge_invalid(
+                    ", ".join(sorted(invalid)),
+                    ", ".join(RBRAcknowledgements.ALL),
+                )
+            )
+        return declared
+
+    def _resolve_config_ack(
+        self, ack_id: str, prompt_fn: Callable[[], bool]
+    ) -> list[str]:
+        """
+        Resolve uma confirmacao de intencao de configuracao.
+
+        Aplica a regra unica do pacote: se a intencao esta declarada, roda; se
+        nao esta, pergunta; se nao pode perguntar, devolve a pendencia para o
+        chamador reportar.
+
+        Returns
+        -------
+        list[str]
+            Lista vazia quando a confirmacao esta autorizada — por ack declarado
+            ou por prompt confirmado. [ack_id] quando esta pendente por ausencia
+            de terminal.
+
+        Raises
+        ------
+        SystemExit
+            Codigo 0 quando o dev nega o prompt. E uma decisao do usuario, nao
+            um erro do programa — e nao uma pendencia, pois nada falta declarar.
+        """
+        if ack_id in self._acknowledge:
+            return []
+
+        answer = _ask(prompt_fn)
+        if answer is None:
+            return [ack_id]
+        if answer:
+            return []
+        raise SystemExit(0)
 
     def _extract_default_parameters(self, flow_func: Callable) -> dict[str, Any]:
         """Extrai parametros com valor default da assinatura da funcao."""
@@ -976,10 +1144,16 @@ class BaseDeploy(Generic[P]):
         if provided > 1:
             raise ValueError(ValidationMessages.schedule_mutex())
 
-        # Prompt de confirmacao para configuracoes avancadas
+        # Confirmacao para configuracoes avancadas. Nao participa do acumulo do
+        # __init__: .schedule() e uma chamada posterior e separada, e reporta a
+        # propria pendencia.
         if interval is not None or rrule is not None:
-            if not confirm_advanced_schedule():
-                raise SystemExit(0)
+            pending = self._resolve_config_ack(
+                RBRAcknowledgements.ADVANCED_SCHEDULE,
+                confirm_advanced_schedule,
+            )
+            if pending:
+                _abort_pending(ack_ids=pending)
 
         # Construir o schedule apropriado
         if cron is not None:
@@ -1030,6 +1204,45 @@ class BaseDeploy(Generic[P]):
 
         return self
 
+    def _resolve_git_issues_ack(self, git_issues: list[GitCheckIssue]) -> None:
+        """
+        Resolve a autorizacao das issues do git pre-flight check.
+
+        Aplica a mesma regra dos acks de configuracao, com uma diferenca
+        essencial: a autorizacao e escopada por id e vem da invocacao, nunca do
+        codigo. Um ack de estado commitado no script desligaria a verificacao
+        permanentemente para todos os deploys futuros daquele flow.
+
+        A cobertura e avaliada por id, nao por quantidade: aceitar 'dirty_main'
+        nao autoriza um 'unpushed_main' que apareca na mesma execucao. E isso que
+        distingue o ack escopado de um bypass — quem aceita precisa ter visto e
+        nomeado cada classe de problema.
+
+        Raises
+        ------
+        SystemExit
+            Codigo 0 quando o dev nega o prompt. RBRNonInteractive.EXIT_CODE
+            quando restam issues nao aceitas e nao ha terminal para perguntar.
+        """
+        accepted = _interaction.accepted_git_issues()
+        unaccepted = [issue.id for issue in git_issues if issue.id not in accepted]
+
+        if not unaccepted:
+            # Todas cobertas pelo ack da invocacao. O painel vermelho de issues
+            # ja foi exibido — o estado do repo precisa ser visto de qualquer
+            # forma — e aqui apenas se registra a autorizacao ao lado dele.
+            ids = RBRNonInteractive.ID_SEPARATOR.join(
+                sorted({issue.id for issue in git_issues})
+            )
+            print_git_issues_accepted(ids)
+            return
+
+        answer = _ask(confirm_git_issues)
+        if answer is None:
+            _abort_pending(git_issue_ids=unaccepted)
+        elif not answer:
+            raise SystemExit(0)
+
     # -------------------------------------------------------------------------
     # Deploy Execution
     # -------------------------------------------------------------------------
@@ -1051,14 +1264,16 @@ class BaseDeploy(Generic[P]):
 
         # Git pre-flight check (apenas para GitHubSourceStrategy)
         if isinstance(self._source_strategy, GitHubSourceStrategy):
-            if not os.environ.get(GitCheckMessages.BYPASS_ENV_VAR):
+            if os.environ.get(GitCheckMessages.BYPASS_ENV_VAR):
+                # Bypass depreciado. Exibe a mensagem de "ignorado", nao o painel
+                # verde de sucesso: afirmar que o repo esta limpo sem ter
+                # verificado e desinformacao para quem le o stdout.
+                print_git_check_skipped()
+            else:
                 git_issues = self._source_strategy.run_git_checks()
                 print_git_check_panel(git_issues)
                 if git_issues:
-                    if not confirm_git_issues():
-                        raise SystemExit(0)
-            else:
-                print_git_check_panel([])
+                    self._resolve_git_issues_ack(git_issues)
 
             # Dependency pre-flight: AUTO_INSTALL exige pyproject.toml com 'prefect'.
             # Falha cedo (read-only) em vez de quebrar silenciosamente em runtime.
@@ -1114,8 +1329,17 @@ class BaseDeploy(Generic[P]):
         # Exibir painel de env resolvido
         print_env_panel(env)
 
-        # Confirmacao do dev apos revisao dos valores resolvidos
-        if not confirm_deploy():
+        # Confirmacao do dev apos revisao dos valores resolvidos. Nao tem ack
+        # proprio: nao carrega informacao nova, apenas oferece um momento de
+        # revisao dos paineis acima. A declaracao de modo e o que a dispensa.
+        answer = _ask(confirm_deploy)
+        if answer is None:
+            # Sem poder perguntar. Se o modo autonomo foi declarado, prossegue —
+            # a declaracao dispensa a revisao. Se nao foi, falha: a
+            # impossibilidade de perguntar evita o travamento, nunca autoriza.
+            if not _interaction.non_interactive_declared():
+                _abort_pending()
+        elif not answer:
             raise SystemExit(0)
 
         # Exibir separador de passagem de responsabilidade
@@ -1171,6 +1395,7 @@ class DefaultDeploy(BaseDeploy[P]):
         extra_env: dict[str, str] | None = None,
         env_override: dict[str, str] | None = None,
         concurrency_limit: int | None = None,
+        acknowledge: list[str] | None = None,
     ) -> None:
         super().__init__(
             flow_func=flow_func,
@@ -1189,6 +1414,7 @@ class DefaultDeploy(BaseDeploy[P]):
             extra_env=extra_env,
             env_override=env_override,
             concurrency_limit=concurrency_limit,
+            acknowledge=acknowledge,
         )
 
 
@@ -1219,6 +1445,7 @@ class SQLDeploy(BaseDeploy[P]):
         extra_env: dict[str, str] | None = None,
         env_override: dict[str, str] | None = None,
         concurrency_limit: int | None = None,
+        acknowledge: list[str] | None = None,
     ) -> None:
         super().__init__(
             flow_func=flow_func,
@@ -1237,6 +1464,7 @@ class SQLDeploy(BaseDeploy[P]):
             extra_env=extra_env,
             env_override=env_override,
             concurrency_limit=concurrency_limit,
+            acknowledge=acknowledge,
         )
 
 
@@ -1271,6 +1499,7 @@ class ScrapeDeploy(BaseDeploy[P]):
         extra_env: dict[str, str] | None = None,
         env_override: dict[str, str] | None = None,
         concurrency_limit: int | None = None,
+        acknowledge: list[str] | None = None,
     ) -> None:
         super().__init__(
             flow_func=flow_func,
@@ -1289,6 +1518,7 @@ class ScrapeDeploy(BaseDeploy[P]):
             extra_env=extra_env,
             env_override=env_override,
             concurrency_limit=concurrency_limit,
+            acknowledge=acknowledge,
         )
 
 
@@ -1326,6 +1556,7 @@ class ProcessDeploy(BaseDeploy[P]):
         extra_env: dict[str, str] | None = None,
         env_override: dict[str, str] | None = None,
         concurrency_limit: int | None = None,
+        acknowledge: list[str] | None = None,
     ) -> None:
         super().__init__(
             flow_func=flow_func,
@@ -1343,4 +1574,5 @@ class ProcessDeploy(BaseDeploy[P]):
             extra_env=extra_env,
             env_override=env_override,
             concurrency_limit=concurrency_limit,
+            acknowledge=acknowledge,
         )
